@@ -40,6 +40,7 @@ class LaplaceDataset(torch.utils.data.Dataset):
 
         self.transform = transforms.Compose(
             [
+                transforms.Resize(image_size),
                 transforms.CenterCrop(image_size),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),

@@ -7,9 +7,9 @@ data:
     gaussian_dequantization: false
     random_flip: true
     rescaled: true
-    num_workers: 32
+    num_workers: 4
     num_classes: 1000
-    path: "../data/imagenet_val_128"
+    path: "/dtu/datasets1/imagenet_object_localization_patched2019/ILSVRC/Data/CLS-LOC/train/"
 
 model:
     model_type: "guided_diffusion"
