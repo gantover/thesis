@@ -210,3 +210,5 @@ __marimo__/
 DIFF-UQ/data
 DIFF-UQ/ADM/images
 
+gpu_*.err
+gpu_*.out

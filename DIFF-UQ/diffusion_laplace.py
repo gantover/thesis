@@ -14,7 +14,10 @@ def list_image_files_and_class_recursively(image_path):
     classes = []
     classes_name = []
     i = 0
-    for subentry in os.listdir(image_path):
+
+    # the model expects sorted classes...
+    sorted_subentries = sorted(os.listdir(image_path))
+    for subentry in sorted_subentries:
         subfull_path = os.path.join(image_path, subentry)
         for entry in os.listdir(subfull_path):
             full_path = os.path.join(subfull_path, entry)

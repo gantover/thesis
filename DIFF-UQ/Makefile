@@ -4,3 +4,6 @@ fix-laplace:
 
 bonus:
 	uv pip install huggingface_hub datasets tqdm
+
+run-jupyter:
+	jupyter notebook --no-browser --port=9999 --ip=0.0.0.0
