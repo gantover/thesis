@@ -3,13 +3,13 @@
 ### -- specify queue --
 #BSUB -q gpuv100
 ### -- set the job Name --
-#BSUB -J semantic_likelyhood_eval 
+#BSUB -J adm_diffusion_test
 ### -- ask for number of cores (must be at least 4 for GPU jobs) --
 #BSUB -n 4
 ### -- Select the resources: 1 gpu in exclusive process mode --
 #BSUB -gpu "num=1:mode=exclusive_process"
 ### -- Request a GPU with 32GB VRAM (Crucial for your memory error) --
-#BSUB -R "select[gpu32gb]"
+#BSUB -R "select[gpu16gb]"
 ### -- set walltime limit: hh:mm --
 #BSUB -W 04:00
 ### -- request 16GB of system RAM --
@@ -40,4 +40,5 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 nvidia-smi
 
 # 5. Run the script
-python ../semantic_likelihood.py --path "/dtu/blackhole/13/213811/s243425/images/IMAGENET128/ddim_fixed_class10000_train%100_step50_S5_epi_unc_1234"
+# We run main.sh directly. Ensure main.sh is executable (chmod +x main.sh)
+bash ./new_scripts/fid_evaluation_adm.sh

@@ -21,8 +21,8 @@
 ### -- send notification at completion--
 #BSUB -N
 ### -- Specify the output and error file. %J is the job-id --
-#BSUB -o gpu_%J.out
-#BSUB -e gpu_%J.err
+#BSUB -o ./logs/gpu_%J.out
+#BSUB -e ./logs/gpu_%J.err
 # -- end of LSF options --
 
 # 1. Load Modules (Exact versions might vary, these are standard for DTU)

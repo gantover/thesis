@@ -7,6 +7,7 @@ Code here is based on [EDM](https://github.com/NVlabs/edm) repo.
 ```
 python dataset_tool.py --source=DATA_PATH --dest=./fid-refs/imagenet-256x256.zip --resolution=256x256 --transform=center-crop --max-images 50000
 
+
 python fid.py ref --data=./fid-refs/imagenet-256x256.zip --dest=./fid-refs/imagenet-256x256.npz --fid_features=./precision-recall-refs/image_net_256_fid_features_.pt
 ```
 - Compute reference statistics (FID) for ImageNet 256x256

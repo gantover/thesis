@@ -237,6 +237,7 @@ def make_transform(
         return np.array(img)
 
     def center_crop(width, height, img):
+        # we crop first to get a square image, then we resize
         crop = np.min(img.shape[:2])
         img = img[(img.shape[0] - crop) // 2 : (img.shape[0] + crop) // 2, (img.shape[1] - crop) // 2 : (img.shape[1] + crop) // 2]
         if img.ndim == 2:
