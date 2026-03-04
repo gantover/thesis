@@ -1,0 +1,1 @@
+python fid.py ref --data=$ROOT_PATH/fid-refs/imagenet-128x128.zip --dest=$ROOT_PATH/fid-refs/imagenet-128x128.npz --fid_features=$ROOT_PATH/precision-recall-refs/image_net_val_128_fid_features_.pt

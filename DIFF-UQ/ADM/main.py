@@ -130,7 +130,7 @@ def main(args, config):
         last_layer_name="out.2",
     )
     la.fit(la_dataloader)
-    last_layers = la.sample(args.mc_size)
+    last_layers = la.sample(args.mc_size) # S will be the number of MC samples, D will be the number of parameters in the last layer
 
     # add MAP model
     last_layers = torch.concat([la.mean[None, :], last_layers], dim=0)

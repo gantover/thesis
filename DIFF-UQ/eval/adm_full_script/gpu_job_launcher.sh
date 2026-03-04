@@ -9,10 +9,9 @@
 ### -- Select the resources: 1 gpu in exclusive process mode --
 #BSUB -gpu "num=1:mode=exclusive_process"
 ### -- Request a GPU with 32GB VRAM (Crucial for your memory error) --
-#BSUB -R "select[gpu16gb]"
+#BSUB -R "select[gpu32gb]"
 ### -- set walltime limit: hh:mm --
-#BSUB -W 04:00
-### -- request 16GB of system RAM --
+#BSUB -W 03:00
 #BSUB -R "rusage[mem=24GB]"
 ### -- set the email address --
 #BSUB -u s243425@dtu.dk
@@ -33,6 +32,12 @@ module load cuda/12.1
 # Assuming your .venv is one level up from ADM folder
 source ../.venv/bin/activate
 
+base="adm_full_script"
+
+source "$base/vars.sh"
+echo "EXP_PATH: $EXP_PATH"
+echo "DATA_PATH: $DATA_PATH"
+
 # 3. Memory Fragmentation Fix (Helps with OOM errors)
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -41,4 +46,11 @@ nvidia-smi
 
 # 5. Run the script
 # We run main.sh directly. Ensure main.sh is executable (chmod +x main.sh)
-bash ./new_scripts/realism_baseline.sh
+# bash ./$base/1_dataset.sh
+# bash ./$base/2_fid_ref_stats.sh
+# bash ./$base/3_realism_eval.sh
+
+for N in 12000 11000 10000 9000 8000 7000 6000 
+do
+  bash ./$base/4_baselines.sh $N
+done

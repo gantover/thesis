@@ -1,17 +1,17 @@
 #!/bin/sh
 ### General options
 ### -- specify queue --
-#BSUB -q gpuv100
+#BSUB -q gpua100
 ### -- set the job Name --
-#BSUB -J adm_diffusion_test
+#BSUB -J ADM_Diffusion_Sampling_Experiment_Replication
 ### -- ask for number of cores (must be at least 4 for GPU jobs) --
 #BSUB -n 4
 ### -- Select the resources: 1 gpu in exclusive process mode --
 #BSUB -gpu "num=1:mode=exclusive_process"
-### -- Request a GPU with 32GB VRAM (Crucial for your memory error) --
-#BSUB -R "select[gpu32gb]"
+### -- Request a GPU with 40GB VRAM --
+#BSUB -R "select[gpu40gb]"
 ### -- set walltime limit: hh:mm --
-#BSUB -W 04:00
+#BSUB -W 24:00
 ### -- request 16GB of system RAM --
 #BSUB -R "rusage[mem=16GB]"
 ### -- set the email address --

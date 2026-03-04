@@ -1,0 +1,1 @@
+New scripts to evaluate FID, precision, recall on the 3 baselines (Random, Generative Uncertainty, Realism) (rarity might come later)

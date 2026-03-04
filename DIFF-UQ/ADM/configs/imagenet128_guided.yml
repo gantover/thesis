@@ -35,7 +35,7 @@ model:
     use_new_attention_order: false
     var_type: fixedlarge
     ema: false
-    ckpt_dir: "../data/128x128_diffusion.pt"
+    ckpt_dir: "/dtu/blackhole/13/213811/s243425/models/128x128_diffusion.pt"
 
 classifier:
     ckpt_dir: "~/ddpm_ckpt/imagenet128/128x128_classifier.pt"

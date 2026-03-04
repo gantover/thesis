@@ -3,7 +3,7 @@
 ### -- specify queue --
 #BSUB -q gpuv100
 ### -- set the job Name --
-#BSUB -J semantic_likelyhood_eval 
+#BSUB -J semantic_likelihood_eval 
 ### -- ask for number of cores (must be at least 4 for GPU jobs) --
 #BSUB -n 4
 ### -- Select the resources: 1 gpu in exclusive process mode --

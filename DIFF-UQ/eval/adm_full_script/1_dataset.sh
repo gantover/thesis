@@ -1,0 +1,2 @@
+echo "python dataset_tool.py --source=${DATA_PATH} --dest=$ROOT_PATH/fid-refs/imagenet-128x128.zip --resolution=128x128 --transform=center-crop --max-images 50000"
+python dataset_tool.py --source=${DATA_PATH} --dest=$ROOT_PATH/fid-refs/imagenet-128x128.zip --resolution=128x128 --transform=center-crop --max-images 50000

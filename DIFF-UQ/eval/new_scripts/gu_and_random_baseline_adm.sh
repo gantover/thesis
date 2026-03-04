@@ -19,3 +19,6 @@ echo "idx sort done, starting fid calculation"
 python fid.py calc --images="${exp_path}/${m}/imgs" --ref=$root_path/fid-refs/imagenet-${H}x${H}.npz --fid_features="${exp_path}/${m}/fid_features_filtered_${unc_name}.pt" --idx_path="${exp_path}/idx_sorted_${N}_${unc_name}.npy"
 echo "fid calculation done, starting precesion, recall calculation"
 python precision_recall_torch.py --ref $root_path/precision-recall-refs/image_net_${H}_fid_features_.pt --eval "${exp_path}/${m}/fid_features_filtered_${unc_name}.pt"
+
+echo "filtered realism score baseline for N=${N}"
+python idx_sort.py --path ${exp_path} --name realism --N $N --reverse true
