@@ -39,4 +39,4 @@ nvidia-smi
 
 # 5. Run the script
 # bash ./jazbec_experiment/run.sh
-python jazbec_compute.py
+python jazbec_compute2.py

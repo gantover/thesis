@@ -56,11 +56,12 @@ def main():
                 # intermediate denoising noise is identical across ensemble members.
                 # This ensures the variance only reflects model disagreement, not
                 # sampling stochasticity.
+                torch.manual_seed(12345 + i)
                 samples = diffusion.p_sample(
                     model, 
                     noise=batch_noise, 
                     device=device, 
-                    seed=i
+                    seed=None
                 )
                 model_samples.append(samples.cpu().numpy())
                 
@@ -76,7 +77,7 @@ def main():
     # Gaussian approximation. For a diagonal covariance matrix, the entropy is 
     # proportional to the sum of the logs of the variances.
     variances = np.var(uncertainty_ensemble, axis=0) # Shape: (50000, 2)
-    uncertainty_scores = 0.5 * np.sum(np.log(variances + 1e-8), axis=1) # Shape: (50000,)
+    uncertainty_scores = 0.5 * np.sum(np.log(variances + 1e-9), axis=1) # Shape: (50000,)
     
     # 4. Filter the 50% lowest generative uncertainty
     median_uncertainty = np.median(uncertainty_scores)
