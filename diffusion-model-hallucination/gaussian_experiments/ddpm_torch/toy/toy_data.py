@@ -171,7 +171,8 @@ class SwissRoll(ToyDataset):
 
 class DataStreamer:
 
-    def __init__(self, dataset: ToyDataset, batch_size: int, num_batches: int, resample: bool = False, modes=None):
+    def __init__(self, dataset: ToyDataset, batch_size: int, num_batches: int, resample: bool = False, modes=None, dataset_seed: int = None):
+        print("DatasetStreamer instantiated with seed: ", dataset_seed)
         
         if isinstance(dataset, str):
             dataset_name = dataset
@@ -179,11 +180,13 @@ class DataStreamer:
         
             if dataset_name == "gaussian1d":
                 assert modes is not None, "Modes must be provided for 1D Gaussian"
-                self.dataset = dataset(size=batch_size * num_batches, random_state=None, means=modes)
+                self.dataset = dataset(size=batch_size * num_batches, random_state=dataset_seed, means=modes)
             else:
-                self.dataset = dataset(batch_size * num_batches, random_state=None)
+                self.dataset = dataset(batch_size * num_batches, random_state=dataset_seed)
         else:
             self.dataset = GenToyDataset(dataset)
+        print(f"Dataset {dataset} loaded with {len(self.dataset)} samples.")
+        print(f"Dataset name inferred as: {dataset_name if isinstance(dataset, str) else 'custom'}")
         self.batch_size = batch_size
         self.num_batches = num_batches
         self.resample = resample

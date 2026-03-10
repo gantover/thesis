@@ -11,6 +11,7 @@ do
       --timesteps 1000 \
       --batch-size 10000 \
       --seed $SEED \
+      --dataset-seed 0 \
       --eval-intv 10000 \
       --num_sample_images 10 \
       --mid-feature 32 \

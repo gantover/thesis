@@ -5,18 +5,14 @@ do
   echo "training for SEED : ${SEED}"
   python train_toy.py \
       --dataset gaussian25 \
-      --size 100_000 \
-      --epochs 10000 \
+      --size 25000 \
+      --epochs 2500 \
       --generations 1 \
-      --exp_str "s1_fds_ensemble_model_seed_$SEED" \
+      --exp_str "quarter_fixed_ds_ensemble_model_seed_$SEED" \
       --timesteps 1000 \
-      --batch-size 10000 \
+      --batch-size 2500 \
       --seed $SEED \
       --dataset-seed 21 \
-      --eval-intv 10000 \
+      --eval-intv 2500 \
       --num_sample_images 10
 done
-
-# last two parameters are used to bypass the evaluation step
-# size was 100_000
-# epochs was 10000

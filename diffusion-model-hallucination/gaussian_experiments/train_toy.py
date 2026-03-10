@@ -36,6 +36,7 @@ def parse_arguments():
     parser.add_argument("--chkpt-intv", default=100, type=int, help="frequency of saving a checkpoint")
     parser.add_argument("--eval-intv", default=10, type=int)
     parser.add_argument("--seed", default=1234, type=int, help="random seed")
+    parser.add_argument("--dataset-seed", default=None, type=int, help="fixed random seed for dataset generation (same across all ensemble models)")
     parser.add_argument("--resume", action="store_true", help="to resume training from a checkpoint")
     parser.add_argument("--device", default="cuda:0", type=str)
     parser.add_argument("--mid-features", default=128, type=int)
@@ -95,7 +96,7 @@ def main():
             wandb.log({'gen':gen})
         print("Generation: ", gen)
         if gen==0:
-            trainloader = DataStreamer(dataset, batch_size=batch_size, num_batches=num_batches, modes=args.modes)
+            trainloader = DataStreamer(dataset, batch_size=batch_size, num_batches=num_batches, modes=args.modes, dataset_seed=args.dataset_seed)
             print("Max and Min of dataset: ", np.max(trainloader.dataset.data), np.min(trainloader.dataset.data))
             np.save(f"{chkpt_dir}/real_dataset.npy", trainloader.dataset.data)
         else:

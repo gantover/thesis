@@ -170,3 +170,4 @@ cython_debug/
 gaussian_experiments/images
 gaussian_experiments/logs
 *.jpg
+*.png
