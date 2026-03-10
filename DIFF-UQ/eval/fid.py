@@ -315,9 +315,9 @@ def main():
 @click.option(
     "--num",
     "num_expected",
-    help="Number of images to use",
+    help="Number of images to use (0 = use all available images)",
     metavar="INT",
-    type=click.IntRange(min=2),
+    type=click.IntRange(min=0),
     default=50000,
     show_default=True,
 )
@@ -334,6 +334,10 @@ def calc(image_path, ref_path, num_expected, seed, batch, idx_path=None, fid_fea
     """Calculate FID for a given set of images."""
     torch.multiprocessing.set_start_method("spawn")
     dist.init()
+
+    # 0 is a sentinel meaning "use all available images" (no size cap, no count check).
+    if num_expected == 0:
+        num_expected = None
 
     dist.print0(f'Loading dataset reference statistics from "{ref_path}"...')
     ref = None

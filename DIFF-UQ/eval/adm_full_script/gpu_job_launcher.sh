@@ -46,10 +46,16 @@ nvidia-smi
 
 # 5. Run the script
 # We run main.sh directly. Ensure main.sh is executable (chmod +x main.sh)
-# bash ./$base/1_dataset.sh
-# bash ./$base/2_fid_ref_stats.sh
-# bash ./$base/3_realism_eval.sh
+# bash ./$base/1_dataset.sh           # one-time: package val images as zip
+# bash ./$base/2_fid_ref_stats.sh     # one-time: compute FID reference stats and real-image P&R features
 
+# Extract Inception features for ALL generated images (prerequisite for realism scoring).
+bash ./$base/3_all_features.sh
+
+# Compute per-image realism scores from the full feature set.
+bash ./$base/3_realism_eval.sh
+
+# Run all three baselines (Random / GU / Realism) at each budget N.
 for N in 12000 11000 10000 9000 8000 7000 6000 
 do
   bash ./$base/4_baselines.sh $N
