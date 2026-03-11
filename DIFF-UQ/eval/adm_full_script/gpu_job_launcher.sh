@@ -11,7 +11,7 @@
 ### -- Request a GPU with 32GB VRAM (Crucial for your memory error) --
 #BSUB -R "select[gpu32gb]"
 ### -- set walltime limit: hh:mm --
-#BSUB -W 03:00
+#BSUB -W 08:00
 #BSUB -R "rusage[mem=24GB]"
 ### -- set the email address --
 #BSUB -u s243425@dtu.dk
@@ -55,7 +55,10 @@ bash ./$base/3_all_features.sh
 # Compute per-image realism scores from the full feature set.
 bash ./$base/3_realism_eval.sh
 
-# Run all three baselines (Random / GU / Realism) at each budget N.
+# Compute per-image rarity scores from the full feature set.
+bash ./$base/3_rarity_eval.sh
+
+# Run all four baselines (Random / GU / Realism / Rarity) at each budget N.
 for N in 12000 11000 10000 9000 8000 7000 6000 
 do
   bash ./$base/4_baselines.sh $N

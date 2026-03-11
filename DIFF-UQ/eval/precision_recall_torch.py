@@ -11,11 +11,13 @@ from time import time
 import argparse
 
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Precision and Recall Calculation")
     parser.add_argument("--ref", type=str, required=True, help="Path to the reference features")
     parser.add_argument("--eval", type=str, required=True, help="Path to the evaluation features")
     parser.add_argument("--realism", type=str, required=False, default=None, help="Path for saving realism score")
+    parser.add_argument("--rarity", type=str, required=False, default=None, help="Path for saving rarity score")
     return parser.parse_args()
 
 
@@ -193,11 +195,67 @@ def knn_precision_recall_features(
     return state
 
 
+
+
+def compute_rarity_scores(ref_features, eval_features, k=3, row_batch_size=10000, col_batch_size=50000, num_gpus=1):
+    """Compute per-sample rarity scores using the existing batched ManifoldEstimator.
+
+    For each eval sample the score is the minimum k-NN ball radius (of the real
+    data) over all real balls that contain it.  Score=0 if the sample falls
+    outside every real ball.  Higher score => rarer region of the real manifold.
+    """
+    num_ref = ref_features.shape[0]
+    num_eval = eval_features.shape[0]
+    num_features_dim = ref_features.shape[1]
+
+    distance_block = DistanceBlock(num_features_dim, num_gpus)
+
+    # Build reference manifold using the existing batched estimator to get
+    # per-real-sample squared k-NN radii without OOM.
+    print("Computing k-NN radii for reference features (rarity)...")
+    ref_manifold = ManifoldEstimator(
+        distance_block, ref_features,
+        row_batch_size=row_batch_size, col_batch_size=col_batch_size,
+        nhood_sizes=[k],
+    )
+    radii = ref_manifold.D[:, 0]  # [num_ref]: squared k-NN radius per real sample
+
+    eval_feats = torch.tensor(eval_features, dtype=torch.float32)
+    ref_feats = torch.tensor(ref_features, dtype=torch.float32)
+
+    rarity_scores = np.zeros(num_eval, dtype=np.float32)
+
+    print("Computing rarity scores for %d eval samples..." % num_eval)
+    for begin_eval in range(0, num_eval, row_batch_size):
+        end_eval = min(begin_eval + row_batch_size, num_eval)
+        eval_batch = eval_feats[begin_eval:end_eval]
+        batch_size = end_eval - begin_eval
+
+        # Squared distances from this eval batch to all ref features.
+        dist_to_ref = np.zeros([batch_size, num_ref], dtype=np.float32)
+        for begin_ref in range(0, num_ref, col_batch_size):
+            end_ref = min(begin_ref + col_batch_size, num_ref)
+            ref_batch = ref_feats[begin_ref:end_ref]
+            dist_to_ref[:, begin_ref:end_ref] = (
+                distance_block.pairwise_distances(eval_batch, ref_batch).cpu().numpy()
+            )
+
+        # For each eval sample: min radius over real balls that contain it.
+        in_balls = dist_to_ref <= radii[None, :]  # [batch_size, num_ref]
+        for i in range(batch_size):
+            if in_balls[i].any():
+                rarity_scores[begin_eval + i] = radii[in_balls[i]].min()
+            # else: score stays 0 (outside all real k-NN balls)
+
+    return rarity_scores
+
+
 def main():
     args = parse_args()
     ref_features_path = args.ref
     eval_features_path = args.eval
     realism_path = args.realism
+    rarity_path = args.rarity
 
     ref_features = torch.load(ref_features_path).cpu().numpy()
     eval_features = torch.load(eval_features_path).cpu().numpy()
@@ -216,6 +274,16 @@ def main():
             print(f"Realism score saved to {realism_path}/realism.npy")
     else:
         state = knn_precision_recall_features(ref_features, eval_features, realism=False)
+
+    # Compute rarity scores if requested (independent of realism).
+    if rarity_path is not None:
+        rarity = compute_rarity_scores(ref_features, eval_features)
+        if ".npy" in rarity_path:
+            np.save(rarity_path, rarity)
+            print(f"Rarity score saved to {rarity_path}")
+        else:
+            np.save(f"{rarity_path}/rarity.npy", rarity)
+            print(f"Rarity score saved to {rarity_path}/rarity.npy")
 
     # Print precision and recall.
     print("Precision: %s" % state["precision"])

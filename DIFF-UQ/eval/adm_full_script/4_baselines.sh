@@ -28,3 +28,14 @@ echo "idx sort done, starting fid calculation"
 python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$ROOT_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_realism.pt" --idx_path="${EXP_PATH}/${m}/idx_sorted_${N}_realism.npy"
 echo "fid calculation done, starting precision/recall calculation"
 python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_realism.pt"
+
+# --- Rarity baseline ---
+# Keep the N images with the highest rarity score (pre-computed in 3_rarity_eval.sh).
+# A high rarity score means the image covers a rare/sparse region of the real
+# data manifold.  Sorting in reverse (descending) selects the rarest images first.
+echo "filtered rarity score baseline for N=${N}"
+python idx_sort.py --path ${EXP_PATH}/${m} --name rarity --N $N --reverse true
+echo "idx sort done, starting fid calculation"
+python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$ROOT_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_rarity.pt" --idx_path="${EXP_PATH}/${m}/idx_sorted_${N}_rarity.npy"
+echo "fid calculation done, starting precision/recall calculation"
+python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_rarity.pt"
