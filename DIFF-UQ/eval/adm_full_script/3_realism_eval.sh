@@ -7,6 +7,6 @@ m=0
 # used later by idx_sort.py in 4_baselines.sh.
 echo "realism score calculation"
 python precision_recall_torch.py \
-    --ref $ROOT_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt \
+    --ref $ROOT_PATH/precision-recall-refs/image_net_train_${H}_fid_features_.pt \
     --eval "${EXP_PATH}/${m}/fid_features_all.pt" \
     --realism "${EXP_PATH}/${m}/realism.npy"

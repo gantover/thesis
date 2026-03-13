@@ -6,8 +6,8 @@ from ddpm_torch.toy import Decoder, GaussianDiffusion, get_beta_schedule
 
 num_samples = 100000 # samples to generate from each model in the ensemble (including base model)
 sel_generation = 0 # which recursive generation to load from the checkpoints
-percentile_threshold = 25 # percentile threshold for filtering samples based on uncertainty scores (lower is more strict)
-uncertainty_calc_method = "full_gaussian_entropy" # "diagonal_gaussian_entropy", "full_gaussian_entropy", "raw_variance"
+percentile_threshold = 70 # percentile threshold for filtering samples based on uncertainty scores (lower is more strict)
+uncertainty_calc_method = "raw_variance" # "diagonal_gaussian_entropy", "full_gaussian_entropy", "raw_variance"
 f_chkpt_dir = lambda seed: f"./chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_fixed_ds_ensemble_model_seed_{seed}"
 cache_base_dir = "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples"
 

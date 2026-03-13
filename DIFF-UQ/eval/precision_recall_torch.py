@@ -223,7 +223,7 @@ def compute_rarity_scores(ref_features, eval_features, k=3, row_batch_size=10000
     eval_feats = torch.tensor(eval_features, dtype=torch.float32)
     ref_feats = torch.tensor(ref_features, dtype=torch.float32)
 
-    rarity_scores = np.zeros(num_eval, dtype=np.float32)
+    rarity_scores = np.full(num_eval, np.inf, dtype=np.float32)
 
     print("Computing rarity scores for %d eval samples..." % num_eval)
     for begin_eval in range(0, num_eval, row_batch_size):
