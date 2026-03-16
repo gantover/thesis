@@ -38,7 +38,7 @@ model:
     ckpt_dir: "/dtu/blackhole/13/213811/s243425/models/128x128_diffusion.pt"
 
 classifier:
-    ckpt_dir: "~/ddpm_ckpt/imagenet128/128x128_classifier.pt"
+    ckpt_dir: "/dtu/blackhole/13/213811/s243425/models/128x128_classifier.pt"
     image_size: 128
     in_channels: 3
     model_channels: 128
@@ -68,4 +68,4 @@ sampling:
     fid_total_samples: 50000
     fid_batch_size: 200
     cond_class: true
-    classifier_scale: 1.25
+    classifier_scale: 1.0

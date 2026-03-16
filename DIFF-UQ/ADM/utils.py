@@ -167,6 +167,25 @@ def parse_args_and_config():
         help="type of dpm_solver ('dpm_solver' or 'taylor'",
     )
     parser.add_argument("--scale", type=float, default=None)
+    parser.add_argument(
+        "--guidance_mode",
+        type=str,
+        default="classifier_free",
+        choices=["classifier_free", "classifier"],
+        help="Sampling guidance mode: classifier_free (default) or classifier guidance",
+    )
+    parser.add_argument(
+        "--classifier_scale",
+        type=float,
+        default=None,
+        help="Override classifier guidance scale. Uses config sampling.classifier_scale when omitted.",
+    )
+    parser.add_argument(
+        "--classifier_grad_batch_size",
+        type=int,
+        default=None,
+        help="Microbatch size for classifier gradient computation in classifier guidance mode.",
+    )
     parser.add_argument("--denoise", action="store_true", default=False)
     parser.add_argument("--lower_order_final", action="store_true", default=False)
     parser.add_argument("--thresholding", action="store_true", default=False)

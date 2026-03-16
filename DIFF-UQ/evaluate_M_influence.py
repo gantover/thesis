@@ -22,6 +22,7 @@ and produces a summary plot:
 
 import os
 import argparse
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -77,6 +78,7 @@ def encode_or_load_clip_features(path: str, m: int, device: str,
             clip_vecs.append(model.encode_image(image))
 
     feats = torch.concat(clip_vecs, dim=0)
+    Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(feats, cache_path)
     print(f"  Saved CLIP features → {cache_path}")
     return feats
@@ -131,6 +133,7 @@ def evaluate_M_influence(path: str, M_max: int, M_values: list[int],
         results[m] = eu
 
         save_path = f"{path}/entropy_clip_M{m}.npy"
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         np.save(save_path, eu)
         print(f"  M={m}: mean entropy={eu.mean():.4f}  std={eu.std():.4f}  → {save_path}")
 

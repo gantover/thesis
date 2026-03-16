@@ -12,6 +12,6 @@ m=0
 # (reverse=false), keeping the most typical/common images per the paper.
 echo "rarity score calculation"
 python precision_recall_torch.py \
-    --ref $ROOT_PATH/precision-recall-refs/image_net_train_${H}_fid_features_.pt \
+    --ref $REF_PATH/precision-recall-refs/image_net_train_${H}_fid_features_.pt \
     --eval "${EXP_PATH}/${m}/fid_features_all.pt" \
     --rarity "${EXP_PATH}/${m}/rarity.npy"

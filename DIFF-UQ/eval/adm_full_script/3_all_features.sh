@@ -7,6 +7,6 @@ H=128
 echo "Extracting Inception features for all images (no size cap)"
 python fid.py calc \
     --images="${EXP_PATH}/${m}/imgs" \
-    --ref=$ROOT_PATH/fid-refs/imagenet-${H}x${H}.npz \
+    --ref=$REF_PATH/fid-refs/imagenet-${H}x${H}.npz \
     --fid_features="${EXP_PATH}/${m}/fid_features_all.pt" \
     --num 0

@@ -1,6 +1,7 @@
 import os
 from PIL import Image
 import argparse
+from pathlib import Path
 
 import torch
 import numpy as np
@@ -58,7 +59,9 @@ def compute_generative_uncertainty(path, M, eu_type="entropy"):
 
         clip_vecs = torch.concat(clip_vecs, dim=0)
         print(clip_vecs.shape)
-        torch.save(clip_vecs, f"{path}/{m}/clip_features.pt")
+        clip_path = Path(path) / str(m) / "clip_features.pt"
+        clip_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(clip_vecs, clip_path)
 
     #### 2) Compute the entropy of the semantic likelihood
 
@@ -77,7 +80,9 @@ def compute_generative_uncertainty(path, M, eu_type="entropy"):
         raise ValueError(f"Unknown epistemic uncertainty type: {eu_type}")
 
     print(f"Saving: {path}/{eu_type}_clip.npy")
-    np.save(f"{path}/{eu_type}_clip.npy", eu)
+    eu_path = Path(path) / f"{eu_type}_clip.npy"
+    eu_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(eu_path, eu)
 
 
 if __name__ == "__main__":

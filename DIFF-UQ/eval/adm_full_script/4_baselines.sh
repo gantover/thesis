@@ -7,17 +7,17 @@ reverse="false"
 # --- Random baseline ---
 # Sample N images uniformly at random and compute FID + precision/recall.
 echo "random baseline for N=${N}"
-python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$ROOT_PATH/fid-refs/imagenet-${H}x${H}.npz --num $N --fid_features="${EXP_PATH}/${m}/fid_features.pt"
-python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features.pt"
+python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$REF_PATH/fid-refs/imagenet-${H}x${H}.npz --num $N --fid_features="${EXP_PATH}/${m}/fid_features.pt"
+python precision_recall_torch.py --ref $REF_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features.pt"
 
 # --- Generative Uncertainty (GU) baseline ---
 # Keep the N images with the lowest epistemic uncertainty score.
 echo "filtered G.U. baseline for N=${N}"
 python idx_sort.py --path ${EXP_PATH} --name ${unc_name} --N $N --reverse ${reverse}
 echo "idx sort done, starting fid calculation"
-python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$ROOT_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_${unc_name}.pt" --idx_path="${EXP_PATH}/idx_sorted_${N}_${unc_name}.npy"
+python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$REF_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_${unc_name}.pt" --idx_path="${EXP_PATH}/idx_sorted_${N}_${unc_name}.npy"
 echo "fid calculation done, starting precision/recall calculation"
-python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_${unc_name}.pt"
+python precision_recall_torch.py --ref $REF_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_${unc_name}.pt"
 
 # --- Realism baseline ---
 # Keep the N images with the highest realism score (pre-computed in 3_realism_eval.sh).
@@ -25,9 +25,9 @@ python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_ne
 echo "filtered realism score baseline for N=${N}"
 python idx_sort.py --path ${EXP_PATH}/${m} --name realism --N $N --reverse true
 echo "idx sort done, starting fid calculation"
-python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$ROOT_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_realism.pt" --idx_path="${EXP_PATH}/${m}/idx_sorted_${N}_realism.npy"
+python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$REF_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_realism.pt" --idx_path="${EXP_PATH}/${m}/idx_sorted_${N}_realism.npy"
 echo "fid calculation done, starting precision/recall calculation"
-python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_realism.pt"
+python precision_recall_torch.py --ref $REF_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_realism.pt"
 
 # --- Rarity baseline ---
 # Keep the N images with the LOWEST rarity score (pre-computed in 3_rarity_eval.sh).
@@ -37,6 +37,6 @@ python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_ne
 echo "filtered rarity score baseline for N=${N}"
 python idx_sort.py --path ${EXP_PATH}/${m} --name rarity --N $N --reverse false
 echo "idx sort done, starting fid calculation"
-python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$ROOT_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_rarity.pt" --idx_path="${EXP_PATH}/${m}/idx_sorted_${N}_rarity.npy"
+python fid.py calc --images="${EXP_PATH}/${m}/imgs" --ref=$REF_PATH/fid-refs/imagenet-${H}x${H}.npz --fid_features="${EXP_PATH}/${m}/fid_features_filtered_rarity.pt" --idx_path="${EXP_PATH}/${m}/idx_sorted_${N}_rarity.npy"
 echo "fid calculation done, starting precision/recall calculation"
-python precision_recall_torch.py --ref $ROOT_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_rarity.pt"
+python precision_recall_torch.py --ref $REF_PATH/precision-recall-refs/image_net_val_${H}_fid_features_.pt --eval "${EXP_PATH}/${m}/fid_features_filtered_rarity.pt"

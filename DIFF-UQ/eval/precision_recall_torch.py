@@ -4,11 +4,19 @@ Code adapted from: https://github.com/kynkaat/improved-precision-and-recall-metr
 
 import numpy as np
 import torch
+from pathlib import Path
 from torch import nn
 from torch.utils.data import DataLoader
 from time import time
 
 import argparse
+
+
+def _ensure_parent_dir(path_like):
+    path = Path(path_like)
+    if path.parent != Path("."):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 
@@ -267,9 +275,11 @@ def main():
     if realism_path is not None:
         state, realism = knn_precision_recall_features(ref_features, eval_features, realism=True)
         if ".npy" in realism_path:
+            _ensure_parent_dir(realism_path)
             np.save(realism_path, realism)
             print(f"Realism score saved to {realism_path}")
         else:
+            _ensure_parent_dir(f"{realism_path}/realism.npy")
             np.save(f"{realism_path}/realism.npy", realism)
             print(f"Realism score saved to {realism_path}/realism.npy")
     else:
@@ -279,9 +289,11 @@ def main():
     if rarity_path is not None:
         rarity = compute_rarity_scores(ref_features, eval_features)
         if ".npy" in rarity_path:
+            _ensure_parent_dir(rarity_path)
             np.save(rarity_path, rarity)
             print(f"Rarity score saved to {rarity_path}")
         else:
+            _ensure_parent_dir(f"{rarity_path}/rarity.npy")
             np.save(f"{rarity_path}/rarity.npy", rarity)
             print(f"Rarity score saved to {rarity_path}/rarity.npy")
 

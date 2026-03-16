@@ -1,4 +1,5 @@
 import numpy as np
+from pathlib import Path
 
 import argparse
 
@@ -20,7 +21,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     print(args)
-    scores = np.load(f"{args.path}/{args.name}.npy")
+    scores = np.load(Path(args.path) / f"{args.name}.npy")
     print(scores.shape)
     if args.reverse == "true":
         idx_sorted = np.argsort(scores)[::-1][: args.N]
@@ -28,4 +29,6 @@ if __name__ == "__main__":
         idx_sorted = np.argsort(scores)[: args.N]
     else:
         raise ValueError(f"Invalid reverse value: {args.reverse}")
-    np.save(f"{args.path}/idx_sorted_{args.N}_{args.name}.npy", idx_sorted)
+    out_path = Path(args.path) / f"idx_sorted_{args.N}_{args.name}.npy"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(out_path, idx_sorted)

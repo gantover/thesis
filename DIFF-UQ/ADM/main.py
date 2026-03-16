@@ -8,11 +8,14 @@ from PIL import Image
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.nn.utils import vector_to_parameters, parameters_to_vector
 
 from ADM.models.diffusion import Model
 from ADM.models.guided_diffusion.unet import UNetModel as GuidedDiffusion_Model
+from ADM.models.guided_diffusion.unet import EncoderUNetModel as GuidedDiffusion_Classifier
 from ADM.utils import (
+    compute_alpha,
     inverse_data_transform,
     singlestep_ddim_sample,
     parse_args_and_config,
@@ -101,6 +104,57 @@ def main(args, config):
                 modified_states[modified_key] = value
             model.load_state_dict(modified_states, strict=True)
 
+    classifier = None
+    classifier_grad_batch_size = (
+        args.classifier_grad_batch_size
+        if args.classifier_grad_batch_size is not None
+        else args.sample_batch_size
+    )
+    if classifier_grad_batch_size <= 0:
+        raise ValueError("classifier_grad_batch_size must be a positive integer.")
+
+    classifier_scale = (
+        args.classifier_scale
+        if args.classifier_scale is not None
+        else getattr(config.sampling, "classifier_scale", 1.0)
+    )
+    if args.guidance_mode == "classifier":
+        if config.model.model_type != "guided_diffusion":
+            raise ValueError("Classifier guidance is only supported for guided_diffusion model_type in this script.")
+        if not hasattr(config, "classifier"):
+            raise ValueError("Missing classifier section in config for classifier guidance mode.")
+
+        classifier = GuidedDiffusion_Classifier(
+            image_size=config.classifier.image_size,
+            in_channels=config.classifier.in_channels,
+            model_channels=config.classifier.model_channels,
+            out_channels=config.classifier.out_channels,
+            num_res_blocks=config.classifier.num_res_blocks,
+            attention_resolutions=config.classifier.attention_resolutions,
+            channel_mult=config.classifier.channel_mult,
+            use_fp16=config.classifier.use_fp16,
+            num_head_channels=config.classifier.num_head_channels,
+            use_scale_shift_norm=config.classifier.use_scale_shift_norm,
+            resblock_updown=config.classifier.resblock_updown,
+            pool=config.classifier.pool,
+        ).to(device)
+
+        classifier_ckpt_dir = os.path.expanduser(config.classifier.ckpt_dir)
+        classifier_states = torch.load(classifier_ckpt_dir, map_location=map_location)
+        if isinstance(classifier_states, dict) and "state_dict" in classifier_states:
+            classifier_states = classifier_states["state_dict"]
+        try:
+            classifier.load_state_dict(classifier_states, strict=True)
+        except RuntimeError:
+            # Support checkpoints saved from DDP wrappers.
+            stripped_state = {
+                (k[7:] if k.startswith("module.") else k): v for k, v in classifier_states.items()
+            }
+            classifier.load_state_dict(stripped_state, strict=True)
+        if config.classifier.use_fp16:
+            classifier.convert_to_fp16()
+        classifier.eval()
+
     la_dataset = LaplaceDataset(
         device,
         config.data.path,
@@ -147,7 +201,7 @@ def main(args, config):
     else:
         raise NotImplementedError
 
-    exp_dir = f"{args.exp_path}/{config.data.dataset}/ddim_fixed_class{args.fixed_class}_train%{args.train_la_data_size}_step{args.timesteps}_S{args.mc_size}_epi_unc_{args.seed}/"
+    exp_dir = f"{args.exp_path}/{config.data.dataset}/ddim_{args.guidance_mode}_fixed_class{args.fixed_class}_train%{args.train_la_data_size}_step{args.timesteps}_S{args.mc_size}_epi_unc_{args.seed}/"
     os.makedirs(exp_dir, exist_ok=True)
 
     S, D = last_layers.shape
@@ -175,21 +229,43 @@ def main(args, config):
                 else:
                     model_kwargs = {"y": classes}
 
+                def predict_eps(x_t, t_discrete):
+                    eps_t = model.forward_no_cfg(x_t, t_discrete, **model_kwargs)
+                    if classifier is None:
+                        return eps_t
+
+                    if classes is None:
+                        raise ValueError("Classifier guidance requires class labels.")
+
+                    cond_grad_chunks = []
+                    n_batch = x_t.shape[0]
+                    for start in range(0, n_batch, classifier_grad_batch_size):
+                        end = min(start + classifier_grad_batch_size, n_batch)
+                        with torch.enable_grad():
+                            x_in = x_t[start:end].detach().requires_grad_(True)
+                            t_in = t_discrete[start:end]
+                            y_in = classes[start:end]
+                            logits = classifier(x_in, t_in)
+                            log_probs = F.log_softmax(logits, dim=-1)
+                            selected = log_probs[torch.arange(logits.shape[0], device=x_t.device), y_in.view(-1)]
+                            cond_grad_chunk = torch.autograd.grad(selected.sum(), x_in)[0]
+                        cond_grad_chunks.append(cond_grad_chunk)
+
+                    cond_grad = torch.cat(cond_grad_chunks, dim=0)
+
+                    at = compute_alpha(betas, t_discrete.long())
+                    sigma_t = (1 - at).sqrt()
+                    return eps_t - sigma_t * (classifier_scale * cond_grad)
+
                 xT = fixed_xT[loop * args.sample_batch_size : (loop + 1) * args.sample_batch_size, :, :, :].to(device)
                 xt_next = xT
-                eps_mu_t = model.forward_no_cfg(
-                    xT,
-                    (torch.ones(args.sample_batch_size) * seq[args.timesteps - 1]).to(xT.device).to(torch.int64),
-                    **model_kwargs,
-                )
+                t_discrete = (torch.ones(args.sample_batch_size) * seq[args.timesteps - 1]).to(xT.device).to(torch.int64)
+                eps_mu_t = predict_eps(xT, t_discrete)
 
                 for timestep in range(args.timesteps - 1, 0, -1):
                     xt_next = singlestep_ddim_sample(betas, xt_next, seq, timestep, eps_mu_t)
-                    eps_mu_t = model.forward_no_cfg(
-                        xt_next,
-                        (torch.ones(args.sample_batch_size) * seq[timestep - 1]).to(xt_next.device).to(torch.int64),
-                        **model_kwargs,
-                    )
+                    t_discrete = (torch.ones(args.sample_batch_size) * seq[timestep - 1]).to(xt_next.device).to(torch.int64)
+                    eps_mu_t = predict_eps(xt_next, t_discrete)
 
                 x = inverse_data_transform(config, xt_next)
 

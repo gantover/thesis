@@ -7,7 +7,7 @@
 
 """Script for calculating Frechet Inception Distance (FID)."""
 
-import os
+from pathlib import Path
 import click
 import tqdm
 import pickle
@@ -20,6 +20,16 @@ from training import dataset
 import clip
 from torchvision import transforms
 from PIL import Image
+
+# ----------------------------------------------------------------------------
+
+
+def _ensure_parent_dir(path_like):
+    path = Path(path_like)
+    if path.parent != Path("."):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
 
 # ----------------------------------------------------------------------------
 
@@ -114,11 +124,13 @@ def calculate_inception_stats(
         dist.print0(f"saving features to {fid_features}")
         if not fid_features.endswith(".pt"):
             fid_features = fid_features + "/fid_features.pt"
+        _ensure_parent_dir(fid_features)
         torch.save(features_all, fid_features)
     elif clip_features is not None:
         dist.print0(f"saving features to {clip_features}")
         if not clip_features.endswith(".pt"):
             clip_features = clip_features + "/clip_features.pt"
+        _ensure_parent_dir(clip_features)
         torch.save(features_all, clip_features)
     # dist.print0(f'saving features to {image_path}/fid_features.pt')
     # torch.save(features_all, f'{image_path}/fid_features_realism.pt')
@@ -193,7 +205,9 @@ def extract_predictives(
     print(features_all.shape)
     # save features
     dist.print0(f"saving predictives to {image_path}/fid_predictives.pt")
-    torch.save(features_all, f"{image_path}/fid_predictives.pt")
+    predictives_path = Path(image_path) / "fid_predictives.pt"
+    _ensure_parent_dir(predictives_path)
+    torch.save(features_all, str(predictives_path))
 
 
 def clip_features(
@@ -268,6 +282,7 @@ def clip_features(
         dist.print0(f"saving features to {fid_features}")
         if not fid_features.endswith(".pt"):
             fid_features = fid_features + "/fid_features.pt"
+        _ensure_parent_dir(fid_features)
         torch.save(features_all, fid_features)
 
 
@@ -408,8 +423,7 @@ def ref(dataset_path, dest_path, batch, fid_features=None):
     mu, sigma = calculate_inception_stats(image_path=dataset_path, max_batch_size=batch, fid_features=fid_features)
     dist.print0(f'Saving dataset reference statistics to "{dest_path}"...')
     if dist.get_rank() == 0:
-        if os.path.dirname(dest_path):
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        _ensure_parent_dir(dest_path)
         np.savez(dest_path, mu=mu, sigma=sigma)
 
     torch.distributed.barrier()
