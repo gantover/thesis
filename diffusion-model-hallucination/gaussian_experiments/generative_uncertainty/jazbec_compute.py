@@ -2,21 +2,43 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from ddpm_torch.toy import Decoder, GaussianDiffusion, get_beta_schedule
+from ddpm_torch.toy import GaussianDiffusion, get_beta_schedule
+
+try:
+    from .ensemble_weights import build_deep_ensemble_models, build_last_layer_laplace_models
+except ImportError:
+    from ensemble_weights import build_deep_ensemble_models, build_last_layer_laplace_models
 
 num_samples = 100000 # samples to generate from each model in the ensemble (including base model)
 sel_generation = 0 # which recursive generation to load from the checkpoints
 percentile_threshold = 70 # percentile threshold for filtering samples based on uncertainty scores (lower is more strict)
-uncertainty_calc_method = "raw_variance" # "diagonal_gaussian_entropy", "full_gaussian_entropy", "raw_variance"
+uncertainty_calc_method = "diagonal_gaussian_entropy" # "diagonal_gaussian_entropy", "full_gaussian_entropy", "raw_variance"
+# Source of ensemble weights:
+# - "deep_ensemble": use checkpoints from seed 0..M
+# - "last_layer_laplace": use seed-0 checkpoint + M sampled last-layer weight sets
+ensemble_weight_source = "last_layer_laplace" # "deep_ensemble" or "last_layer_laplace"
+num_additional_weight_sets = 5 # M additional models on top of the base model
+# Last-layer Laplace hyperparameters (used only when ensemble_weight_source == "last_layer_laplace")
+laplace_batches = 64
+laplace_batch_size = 2048
+laplace_prior_precision = 1e-2
+laplace_fisher_scale_mode = "dataset_size" # "dataset_size" (DIFF-UQ-like) or "none"
+laplace_fisher_scale = 1.0
+laplace_sample_temperature = 1.0
+laplace_weight_sampling_seed = 1234 # set to None for non-deterministic weight sampling
 f_chkpt_dir = lambda seed: f"./chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_fixed_ds_ensemble_model_seed_{seed}"
 cache_base_dir = "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples"
+cache_laplace_seed = "none" if laplace_weight_sampling_seed is None else str(laplace_weight_sampling_seed)
+cache_path = (
+    f"{cache_base_dir}/ensemble_samples_{ensemble_weight_source}_"
+    f"M{num_additional_weight_sets}_seed{cache_laplace_seed}_gen{sel_generation}_n{num_samples}.npy"
+)
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_size = 10000
     timesteps = 1000
-    num_models = 6 # 1 base model + 5 ensemble models
-    cache_path = f"{cache_base_dir}/ensemble_samples_gen{sel_generation}_n{num_samples}.npy"
+    num_models = num_additional_weight_sets + 1
 
     if os.path.exists(cache_path):
         print(f"Loading cached ensemble samples from {cache_path}")
@@ -38,21 +60,30 @@ def main():
         # pre allocation
         ensemble_samples = np.zeros((num_models, num_samples, 2), dtype=np.float32)
         
-        print("Loading ensemble models into memory...")
-        ensemble_models = []
-        for model_seed in range(num_models):
-            model = Decoder(in_features=2, mid_features=128, num_temporal_layers=3)
-            chkpt_dir = f_chkpt_dir(model_seed)
-            chkpt_path = os.path.join(chkpt_dir, f"ddpm_gaussian25_gen_{sel_generation}.pt")
-            
-            if not os.path.exists(chkpt_path):
-                raise FileNotFoundError(f"Missing checkpoint: {chkpt_path}")
-                
-            checkpoint = torch.load(chkpt_path, map_location=device)
-            model.load_state_dict(checkpoint.get("model", checkpoint))
-            model.to(device)
-            model.eval()
-            ensemble_models.append(model)
+        if ensemble_weight_source == "deep_ensemble":
+            ensemble_models = build_deep_ensemble_models(
+                f_chkpt_dir=f_chkpt_dir,
+                sel_generation=sel_generation,
+                num_additional_models=num_additional_weight_sets,
+                device=device,
+            )
+        elif ensemble_weight_source == "last_layer_laplace":
+            ensemble_models = build_last_layer_laplace_models(
+                f_chkpt_dir=f_chkpt_dir,
+                sel_generation=sel_generation,
+                num_additional_models=num_additional_weight_sets,
+                diffusion=diffusion,
+                device=device,
+                laplace_batches=laplace_batches,
+                laplace_batch_size=laplace_batch_size,
+                prior_precision=laplace_prior_precision,
+                fisher_scale_mode=laplace_fisher_scale_mode,
+                fisher_scale=laplace_fisher_scale,
+                sample_temperature=laplace_sample_temperature,
+                weight_sampling_seed=laplace_weight_sampling_seed,
+            )
+        else:
+            raise ValueError(f"Unknown ensemble_weight_source: {ensemble_weight_source}")
             
         print("Starting generation...")
         
@@ -97,13 +128,17 @@ def main():
     plot_samples_filtering(base_samples, filtered_samples)
     plot_uncertainty_threshold_analysis(uncertainty_scores)
 
-def f_uncertainty_scores(uncertainty_ensemble, kind: str = "diagonal_gaussian_entropy"):
+def f_uncertainty_scores(
+    uncertainty_ensemble,
+    kind: str = "diagonal_gaussian_entropy",
+    eps: float = 1e-8,
+):
 
     if kind == "diagonal_gaussian_entropy":
         # reproduction of Jazbec et al. method from appendix B.1
         # gaussian obtained with moment matching, followed by diagnonal covariance assumption
         variances = np.var(uncertainty_ensemble, axis=0)
-        uncertainty_scores = 0.5 * np.sum(np.log(variances + 1e-8), axis=1)
+        uncertainty_scores = 0.5 * np.sum(np.log(variances + eps), axis=1)
 
     elif kind == "full_gaussian_entropy":
         # removing the diagonal covariance assumption
@@ -115,7 +150,7 @@ def f_uncertainty_scores(uncertainty_ensemble, kind: str = "diagonal_gaussian_en
             cov_matrix = np.cov(points, rowvar=False) 
             
             # Calculate the log determinant (adding a small epsilon to the diagonal for stability)
-            cov_matrix += np.eye(2) * 1e-8
+            cov_matrix += np.eye(2) * eps
             sign, logdet = np.linalg.slogdet(cov_matrix)
             
             # Entropy is proportional to log determinant
@@ -125,13 +160,13 @@ def f_uncertainty_scores(uncertainty_ensemble, kind: str = "diagonal_gaussian_en
 
     elif kind == "raw_variance":
         uncertainty_scores = np.sum(np.var(uncertainty_ensemble, axis=0), axis=1)
-    
+
     else:
         raise ValueError(f"Unknown uncertainty calculation method: {kind}")
 
     return uncertainty_scores
 
-def plot_samples_filtering(base_samples, filtered_samples):
+def plot_samples_filtering(base_samples, filtered_samples, save_fig=True):
     real_dataset_path = f_chkpt_dir(0) + "/real_dataset.npy"
 
     if os.path.exists(real_dataset_path):
@@ -162,9 +197,12 @@ def plot_samples_filtering(base_samples, filtered_samples):
         ax.set_yticks([-1, 0, 1])
         
     plt.tight_layout()
-    figure_filename = f"./figures/samples_{uncertainty_calc_method}_{percentile_threshold}_{num_samples}.jpg"
-    plt.savefig(figure_filename, dpi=300)
-    print(f"saved reproduction plot to {figure_filename}")
+    if save_fig:
+        figure_filename = f"./figures/samples_{uncertainty_calc_method}_{percentile_threshold}_{num_samples}_{ensemble_weight_source}.jpg"
+        plt.savefig(figure_filename, dpi=300)
+        print(f"saved reproduction plot to {figure_filename}")
+    else:
+        plt.show()
 
 
 def plot_uncertainty_threshold_analysis(uncertainties, percentiles=None):
@@ -207,7 +245,7 @@ def plot_uncertainty_threshold_analysis(uncertainties, percentiles=None):
     ax1.legend(handles=handles, fontsize=9, loc="upper left")
 
     plt.tight_layout()
-    figure_filename = f"./figures/uncertainty_distribution_{uncertainty_calc_method}_{num_samples}.png"
+    figure_filename = f"./figures/uncertainty_distribution_{uncertainty_calc_method}_{num_samples}_{ensemble_weight_source}.png"
     plt.savefig(figure_filename, dpi=300, bbox_inches="tight")
     plt.show()
     print(f"saved: {figure_filename}")

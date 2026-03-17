@@ -212,3 +212,5 @@ DIFF-UQ/ADM/images
 
 gpu_*.err
 gpu_*.out
+
+*.pkl
