@@ -1,24 +1,22 @@
 import copy
 import os
 
+from pathlib import Path
 import numpy as np
 import torch
 
-from ddpm_torch.toy import Decoder
+from ddpm_torch.toy import Decoder, GaussianDiffusion, get_beta_schedule
 
+def get_diffusion(timesteps=1000):
+    betas = get_beta_schedule("linear", beta_start=0.001, beta_end=0.2, timesteps=timesteps)
+    diffusion = GaussianDiffusion(
+        betas=betas, 
+        model_mean_type="eps", 
+        model_var_type="fixed-large", 
+        loss_type="mse"
+    )
+    return diffusion
 
-def load_model_from_checkpoint(f_chkpt_dir, device, seed=0, sel_generation=0):
-    model = Decoder(in_features=2, mid_features=128, num_temporal_layers=3)
-    chkpt_dir = f_chkpt_dir(seed)
-    chkpt_path = os.path.join(chkpt_dir, f"ddpm_gaussian25_gen_{sel_generation}.pt")
-    if not os.path.exists(chkpt_path):
-        raise FileNotFoundError(f"Missing checkpoint: {chkpt_path}")
-
-    checkpoint = torch.load(chkpt_path, map_location=device)
-    model.load_state_dict(checkpoint.get("model", checkpoint))
-    model.to(device)
-    model.eval()
-    return model
 
 
 def fit_last_layer_diag_laplace(
@@ -108,34 +106,70 @@ def sample_last_layer_model(base_model, means, stds, device, temperature=1.0, ge
     sampled_model.eval()
     return sampled_model
 
+def load_model_from_checkpoint(chkpt_path, device):
+    model = Decoder(in_features=2, mid_features=128, num_temporal_layers=3)
 
-def build_deep_ensemble_models(
-    f_chkpt_dir,
+    checkpoint = torch.load(chkpt_path, map_location=device)
+    model.load_state_dict(checkpoint.get("model", checkpoint))
+    model.to(device)
+    model.eval()
+    return model
+
+def load_deep_ensemble_models(
+    trained_models_dir,
     sel_generation,
-    num_additional_models,
+    M,
     device,
 ):
-    total_models = num_additional_models + 1
+    total_models = M + 1
     print("Loading ensemble models from independent checkpoints...")
     models = []
     for model_seed in range(total_models):
+        chkpt_dir = Path(trained_models_dir.format(seed=model_seed))
+        chkpt_path = chkpt_dir / f"ddpm_gaussian25_gen_{sel_generation}.pt"
+        if not chkpt_path.exists():
+            raise FileNotFoundError(f"Missing checkpoint: {chkpt_path}")
         models.append(
             load_model_from_checkpoint(
-                f_chkpt_dir=f_chkpt_dir,
+                chkpt_path=chkpt_path,
                 device=device,
-                seed=model_seed,
-                sel_generation=sel_generation,
             )
         )
     return models
 
+def load_llla_sampled_models(llla_sampled_models_dir, M, device):
+    models = []
+    total_models = M # we are not loading the base model here, only the sampled ones
+    for model_id in range(total_models):
+        chkpt_path = Path(llla_sampled_models_dir) / f"llla_sample_{model_id}.pt"
+        if not chkpt_path.exists():
+            raise FileNotFoundError(f"Missing LLLA sampled model checkpoint: {chkpt_path}")
+        models.append(
+            load_model_from_checkpoint(
+                chkpt_path=chkpt_path,
+                device=device,
+            )
+        )
+    return models
+
+def load_base_model(trained_models_dir, sel_generation, device):
+    chkpt_dir = Path(trained_models_dir.format(seed=0))
+    chkpt_path = chkpt_dir / f"ddpm_gaussian25_gen_{sel_generation}.pt"
+    if not chkpt_path.exists():
+        raise FileNotFoundError(f"Missing checkpoint: {chkpt_path}")
+    return load_model_from_checkpoint(
+        chkpt_path=chkpt_path,
+        device=device,
+    )
+
 
 def build_last_layer_laplace_models(
-    f_chkpt_dir,
-    sel_generation,
-    num_additional_models,
+    trained_models_dir,
+    llla_sampled_models_dir,
     diffusion,
     device,
+    sel_generation=0,
+    M=5,
     laplace_batches=64,
     laplace_batch_size=2048,
     prior_precision=1e-2,
@@ -145,14 +179,13 @@ def build_last_layer_laplace_models(
     weight_sampling_seed=None,
 ):
     print("Building ensemble by last-layer Laplace weight sampling...")
-    base_model = load_model_from_checkpoint(
-        f_chkpt_dir=f_chkpt_dir,
-        device=device,
-        seed=0,
-        sel_generation=sel_generation,
-    )
 
-    real_dataset_path = f_chkpt_dir(0) + "/real_dataset.npy"
+    # loading the base model from the first checkpoint (seed 0) to fit the Laplace posterior
+    chkpt_dir = Path(trained_models_dir.format(seed=0))
+
+    base_model = load_base_model(trained_models_dir=trained_models_dir, sel_generation=sel_generation, device=device)
+
+    real_dataset_path = chkpt_dir / "real_dataset.npy"
     if not os.path.exists(real_dataset_path):
         raise FileNotFoundError(f"Missing calibration data: {real_dataset_path}")
     real_data = np.load(real_dataset_path)
@@ -173,16 +206,21 @@ def build_last_layer_laplace_models(
     weight_generator = None
     if weight_sampling_seed is not None:
         weight_generator = torch.Generator(device=device).manual_seed(weight_sampling_seed)
+    
+    llla_chkpt_dir = Path(llla_sampled_models_dir)
+    llla_chkpt_dir.mkdir(parents=True, exist_ok=True)
 
-    for _ in range(num_additional_models):
-        models.append(
-            sample_last_layer_model(
-                base_model=base_model,
-                means=means,
-                stds=stds,
-                device=device,
-                temperature=sample_temperature,
-                generator=weight_generator,
-            )
-        )
+    for i in range(M):
+        model = sample_last_layer_model(
+                    base_model=base_model,
+                    means=means,
+                    stds=stds,
+                    device=device,
+                    temperature=sample_temperature,
+                    generator=weight_generator,
+                )
+        model_cache_path = llla_chkpt_dir / f"llla_sample_{i}.pt"
+        torch.save(model.state_dict(), model_cache_path)
+        print(f"Saved sampled model to cache: {model_cache_path}")
+        models.append(model)
     return models

@@ -1,0 +1,17 @@
+laplace-ensemble:
+  llla_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/llla_sampled"
+  laplace_batches: 64
+  laplace_batch_size: 2048
+  weight_sampling_seed: 42
+
+# was trained with Aithal et al. original code
+deep-ensemble:
+  # trained_models_dir: "chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_s1_fds_ensemble_model_seed_{seed}"
+  trained_models_dir: "chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_fixed_ds_ensemble_model_seed_{seed}" 
+  sel_generation: 0
+  M: 5
+
+sampling:
+  num_samples: 100000
+  batch_size: 10000
+  samples_cache_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples"

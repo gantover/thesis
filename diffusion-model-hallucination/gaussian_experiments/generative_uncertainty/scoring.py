@@ -1,35 +1,32 @@
-from .jazbec_compute import cache_path, f_uncertainty_scores, f_chkpt_dir, plot_samples_filtering
-import os
 import numpy as np
+import jax.numpy as jnp
 import pandas as pd
-import matplotlib.pyplot as plt
 import ot
 from sklearn.metrics.pairwise import rbf_kernel
 import scipy.stats as st
 from tqdm.auto import tqdm
 
-def main():
-    real_dataset_path = f_chkpt_dir(0) + "/real_dataset.npy"
-    real_data = np.load(real_dataset_path)
-    print(f"loaded real data : {real_data.shape}")
+from scipy.special import logsumexp
+from scipy.stats import entropy
 
-    ensemble_samples = np.load(cache_path)
-    print(f"loaded ensemble samples: {ensemble_samples.shape}")
+def score_percentiles(real_data, ensemble_samples, uncertainty_scores):
+
     base_samples = ensemble_samples[0]
-
-    uncertainty_calc_method = "diagonal_gaussian_entropy" # "diagonal_gaussian_entropy", "full_gaussian_entropy", "raw_variance"
-    uncertainty_scores = f_uncertainty_scores(ensemble_samples, kind=uncertainty_calc_method)
+    true_means, true_var = extract_true_gmm_params()
 
     df = pd.DataFrame()
-    percentiles = [70, 75, 80, 85, 90, 95, 100]
+    # percentiles = [70, 75, 80, 85, 90, 95, 100]
+    percentiles = list(np.arange(70, 101, 1))
     for percentile in tqdm(percentiles):
-        percentile_score = np.percentile(uncertainty_scores, percentile)
+        percentile_score = jnp.percentile(uncertainty_scores, percentile)
         confident_mask = uncertainty_scores <= percentile_score
         filtered_samples = base_samples[confident_mask]
         
-        results_filtered = estimator(calculate_wasserstein, real_data, filtered_samples, num_iterations=20)
+        # results_filtered = estimator(calculate_wasserstein, real_data, filtered_samples, num_iterations=20)
+        results_filtered = evaluate_exact_gmm(filtered_samples, true_means, true_var)
         df[percentile] = results_filtered
-    df.to_pickle("./results/wasserstein_results.pkl")
+
+    return df
 
 def mixture_rbf_mmd(X, Y, gammas=[2.0, 10.0, 400.0]):
     """
@@ -55,7 +52,7 @@ def calculate_wasserstein(real_data, generated_data):
     M = ot.dist(real_data, generated_data, metric='euclidean')
     
     # Uniform weights for all points
-    a, b = np.ones((n,)) / n, np.ones((n,)) / n
+    a, b = jnp.ones((n,)) / n, jnp.ones((n,)) / n
     
     # Calculate exact Earth Mover's Distance
     wasserstein_dist = ot.emd2(a, b, M)
@@ -84,12 +81,12 @@ def estimator(metric, real_data, generated_data, num_iterations=20, subsample_si
         score = metric(real_sub, gen_sub)
         scores.append(score)
         
-    scores = np.array(scores)
+    scores = jnp.array(scores)
     
     # 3. Calculate Statistical Metrics
-    mean_mmd = np.mean(scores)
-    std_dev = np.std(scores, ddof=1)  # ddof=1 for unbiased sample standard deviation
-    standard_error = std_dev / np.sqrt(num_iterations)
+    mean_mmd = jnp.mean(scores)
+    std_dev = jnp.std(scores, ddof=1)  # ddof=1 for unbiased sample standard deviation
+    standard_error = std_dev / jnp.sqrt(num_iterations)
     
     # 4. Calculate 95% Confidence Interval using Student's t-distribution
     ci_lower, ci_upper = st.t.interval(confidence=0.95, df=num_iterations-1, loc=mean_mmd, scale=standard_error)
@@ -102,5 +99,71 @@ def estimator(metric, real_data, generated_data, num_iterations=20, subsample_si
         "ci_upper": ci_upper
     }
 
-if __name__ == "__main__":
-    main()
+def extract_true_gmm_params(scale=2.0, noise=0.05):
+    """
+    Extracts the EXACT mathematically true scaled means and variance
+    based on the Gaussian25 class in toy_data.py.
+    """
+    # 1. The unscaled modes
+    base_modes = np.array([(i, j) for i in range(-2, 3) for j in range(-2, 3)], dtype=np.float32)
+    modes = scale * base_modes
+    
+    # 2. The exact scaling factor used in the dataset
+    stdev_scale = np.sqrt(noise ** 2 + (scale ** 2) * 2.)
+    
+    # 3. The true scaled parameters
+    true_means = modes / stdev_scale
+    true_variance = (noise / stdev_scale) ** 2
+    
+    return true_means, true_variance
+
+def evaluate_exact_gmm(generated_data, true_means, true_variance):
+    """
+    Evaluates generated data against the known analytical 25-GMM.
+    Returns Exact Log-Likelihood (Precision) and Mode KL Divergence (Recall).
+    """
+    num_modes = len(true_means)
+    N = len(generated_data)
+    
+    # --- 1. EXACT LOG-LIKELIHOOD (PRECISION) ---
+    # We use the log-sum-exp trick for numerical stability
+    # log p(x) = log(1/25) + logsumexp( log N(x | mu_i, var) )
+    
+    # Calculate squared Euclidean distances to all 25 means for all points
+    # Shape: (N, 25)
+    diff = generated_data[:, np.newaxis, :] - true_means[np.newaxis, :, :]
+    dist_sq = np.sum(diff ** 2, axis=2)
+    
+    # Log of the Gaussian PDF: -0.5 * (d^2 / var + 2*log(2*pi*var))
+    log_gaussian_pdfs = -0.5 * (dist_sq / true_variance + 2 * np.log(2 * np.pi * true_variance))
+    
+    # Combine the 25 modes: log( sum(exp(log_pdfs)) ) - log(25)
+    log_likelihoods = logsumexp(log_gaussian_pdfs, axis=1) - np.log(num_modes)
+    
+    # The final Precision score is the average log-likelihood
+    avg_log_likelihood = np.mean(log_likelihoods)
+    
+    # --- 2. EXACT MODE COVERAGE (RECALL) ---
+    # Assign each point to the nearest true mean
+    closest_mode_idx = np.argmin(dist_sq, axis=1)
+    
+    # Count how many points went to each mode
+    mode_counts = np.bincount(closest_mode_idx, minlength=num_modes)
+    empirical_probs = mode_counts / N
+    
+    # The ideal distribution is perfectly uniform (1/25 for all modes)
+    ideal_probs = np.ones(num_modes) / num_modes
+    
+    # Calculate KL Divergence between Empirical and Ideal
+    # Lower is better (0.0 means perfect mode coverage)
+    kl_divergence = entropy(empirical_probs, ideal_probs)
+    
+    # Calculate raw coverage (How many modes have at least 0.5% of the points?)
+    covered_modes = np.sum(empirical_probs > 0.005)
+    
+    return {
+        "avg_log_likelihood": avg_log_likelihood,  # Higher is better
+        "mode_kl_divergence": kl_divergence,       # Lower is better (0 = perfect)
+        "modes_covered": covered_modes,            # Higher is better (Max 25)
+        "mode_distribution": empirical_probs       # For plotting/debugging
+    }

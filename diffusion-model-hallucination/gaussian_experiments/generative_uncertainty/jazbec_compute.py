@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from ddpm_torch.toy import GaussianDiffusion, get_beta_schedule
+from ensemble_weights import get_diffusion, load_ensemble_models
 
 try:
     from .ensemble_weights import build_deep_ensemble_models, build_last_layer_laplace_models
@@ -18,115 +19,20 @@ uncertainty_calc_method = "diagonal_gaussian_entropy" # "diagonal_gaussian_entro
 # - "last_layer_laplace": use seed-0 checkpoint + M sampled last-layer weight sets
 ensemble_weight_source = "last_layer_laplace" # "deep_ensemble" or "last_layer_laplace"
 num_additional_weight_sets = 5 # M additional models on top of the base model
-# Last-layer Laplace hyperparameters (used only when ensemble_weight_source == "last_layer_laplace")
-laplace_batches = 64
-laplace_batch_size = 2048
-laplace_prior_precision = 1e-2
-laplace_fisher_scale_mode = "dataset_size" # "dataset_size" (DIFF-UQ-like) or "none"
-laplace_fisher_scale = 1.0
-laplace_sample_temperature = 1.0
-laplace_weight_sampling_seed = 1234 # set to None for non-deterministic weight sampling
 f_chkpt_dir = lambda seed: f"./chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_fixed_ds_ensemble_model_seed_{seed}"
 cache_base_dir = "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples"
-cache_laplace_seed = "none" if laplace_weight_sampling_seed is None else str(laplace_weight_sampling_seed)
-cache_path = (
-    f"{cache_base_dir}/ensemble_samples_{ensemble_weight_source}_"
-    f"M{num_additional_weight_sets}_seed{cache_laplace_seed}_gen{sel_generation}_n{num_samples}.npy"
-)
 
-def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size = 10000
-    timesteps = 1000
-    num_models = num_additional_weight_sets + 1
-
-    if os.path.exists(cache_path):
-        print(f"Loading cached ensemble samples from {cache_path}")
-        ensemble_samples = np.load(cache_path)
-    else:
-        # create a fixed dataset of pure initial noise
-        torch.manual_seed(42)
-        pure_noise_dataset = torch.randn((num_samples, 2), device=device)
-        
-        # diffusion parameters matching the training script
-        betas = get_beta_schedule("linear", beta_start=0.001, beta_end=0.2, timesteps=timesteps)
-        diffusion = GaussianDiffusion(
-            betas=betas, 
-            model_mean_type="eps", 
-            model_var_type="fixed-large", 
-            loss_type="mse"
-        )
-
-        # pre allocation
-        ensemble_samples = np.zeros((num_models, num_samples, 2), dtype=np.float32)
-        
-        if ensemble_weight_source == "deep_ensemble":
-            ensemble_models = build_deep_ensemble_models(
-                f_chkpt_dir=f_chkpt_dir,
-                sel_generation=sel_generation,
-                num_additional_models=num_additional_weight_sets,
-                device=device,
-            )
-        elif ensemble_weight_source == "last_layer_laplace":
-            ensemble_models = build_last_layer_laplace_models(
-                f_chkpt_dir=f_chkpt_dir,
-                sel_generation=sel_generation,
-                num_additional_models=num_additional_weight_sets,
-                diffusion=diffusion,
-                device=device,
-                laplace_batches=laplace_batches,
-                laplace_batch_size=laplace_batch_size,
-                prior_precision=laplace_prior_precision,
-                fisher_scale_mode=laplace_fisher_scale_mode,
-                fisher_scale=laplace_fisher_scale,
-                sample_temperature=laplace_sample_temperature,
-                weight_sampling_seed=laplace_weight_sampling_seed,
-            )
-        else:
-            raise ValueError(f"Unknown ensemble_weight_source: {ensemble_weight_source}")
-            
-        print("Starting generation...")
-        
-        with torch.no_grad():
-            for batch_start in range(0, num_samples, batch_size):
-                batch_end = min(batch_start + batch_size, num_samples)
-                batch_noise = pure_noise_dataset[batch_start:batch_end]
-                
-                batch_seed = 12345 + batch_start
-                print(f"Processing batch {batch_start} to {batch_end}...")
-                
-                for m_idx, model in enumerate(ensemble_models):
-                    # RNG rewinding for every model in the ensemble.
-                    # guarantees identical intermediate denoising noise.
-                    torch.manual_seed(batch_seed)
-                    
-                    samples = diffusion.p_sample(
-                        model, 
-                        noise=batch_noise, 
-                        device=device, 
-                        seed=None
-                    )
-                    
-                    ensemble_samples[m_idx, batch_start:batch_end] = samples.cpu().numpy()
-
-        np.save(cache_path, ensemble_samples)
-        print(f"Saved ensemble samples to {cache_path}")
-                
-    base_samples = ensemble_samples[0] # 0 (base model)
-    # uncertainty_ensemble = ensemble_samples[1:] # 1 -> 5
-    uncertainty_ensemble = ensemble_samples # 0 -> 5
-
-    uncertainty_scores = f_uncertainty_scores(uncertainty_ensemble, kind=uncertainty_calc_method) # Shape: (50000,)
+    # uncertainty_scores = f_uncertainty_scores(uncertainty_ensemble, kind=uncertainty_calc_method) # Shape: (50000,)
     
-    percentile_score = np.percentile(uncertainty_scores, percentile_threshold)
-    confident_mask = uncertainty_scores <= percentile_score
-    filtered_samples = base_samples[confident_mask]
+    # percentile_score = np.percentile(uncertainty_scores, percentile_threshold)
+    # confident_mask = uncertainty_scores <= percentile_score
+    # filtered_samples = base_samples[confident_mask]
     
-    print(f"Original samples generated: {len(base_samples)}")
-    print(f"Filtered samples retained:  {len(filtered_samples)}")
+    # print(f"Original samples generated: {len(base_samples)}")
+    # print(f"Filtered samples retained:  {len(filtered_samples)}")
     
-    plot_samples_filtering(base_samples, filtered_samples)
-    plot_uncertainty_threshold_analysis(uncertainty_scores)
+    # plot_samples_filtering(base_samples, filtered_samples)
+    # plot_uncertainty_threshold_analysis(uncertainty_scores)
 
 def f_uncertainty_scores(
     uncertainty_ensemble,
@@ -249,7 +155,3 @@ def plot_uncertainty_threshold_analysis(uncertainties, percentiles=None):
     plt.savefig(figure_filename, dpi=300, bbox_inches="tight")
     plt.show()
     print(f"saved: {figure_filename}")
-
-
-if __name__ == "__main__":
-    main()
