@@ -48,6 +48,7 @@ def generate_llla_models(obj):
         laplace_batches=laplace_ensemble_config['laplace_batches'],
         laplace_batch_size=laplace_ensemble_config['laplace_batch_size'],
         weight_sampling_seed=laplace_ensemble_config['weight_sampling_seed'],
+        sample_temperature=laplace_ensemble_config['sample_temperature'],
     )
 
 @cli.command()

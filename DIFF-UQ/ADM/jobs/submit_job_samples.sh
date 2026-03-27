@@ -1,19 +1,19 @@
 #!/bin/sh
 ### General options
 ### -- specify queue --
-#BSUB -q gpuv100
+#BSUB -q gpua100
 ### -- set the job Name --
-#BSUB -J adm_diffusion_test
+#BSUB -J ADM_Diffusion_Sampling_Experiment_Replication
 ### -- ask for number of cores (must be at least 4 for GPU jobs) --
 #BSUB -n 4
 ### -- Select the resources: 1 gpu in exclusive process mode --
 #BSUB -gpu "num=1:mode=exclusive_process"
-### -- Request a GPU with 32GB VRAM (Crucial for your memory error) --
-#BSUB -R "select[gpu16gb]"
+### -- Request a GPU with 40GB VRAM --
+#BSUB -R "select[gpu40gb]"
 ### -- set walltime limit: hh:mm --
-#BSUB -W 04:00
+#BSUB -W 24:00
 ### -- request 16GB of system RAM --
-#BSUB -R "rusage[mem=24GB]"
+#BSUB -R "rusage[mem=16GB]"
 ### -- set the email address --
 #BSUB -u s243425@dtu.dk
 ### -- send notification at start --
@@ -21,8 +21,8 @@
 ### -- send notification at completion--
 #BSUB -N
 ### -- Specify the output and error file. %J is the job-id --
-#BSUB -o ./logs/gpu_%J.out
-#BSUB -e ./logs/gpu_%J.err
+#BSUB -o ./jobs/logs/gpu_%J.out
+#BSUB -e ./jobs/logs/gpu_%J.err
 # -- end of LSF options --
 
 # 1. Load Modules (Exact versions might vary, these are standard for DTU)
@@ -41,4 +41,4 @@ nvidia-smi
 
 # 5. Run the script
 # We run main.sh directly. Ensure main.sh is executable (chmod +x main.sh)
-bash ./new_scripts/realism_baseline.sh
+bash main.sh

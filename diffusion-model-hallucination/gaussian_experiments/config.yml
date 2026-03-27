@@ -3,6 +3,7 @@ laplace-ensemble:
   laplace_batches: 64
   laplace_batch_size: 2048
   weight_sampling_seed: 42
+  sample_temperature: 0.5
 
 # was trained with Aithal et al. original code
 deep-ensemble:
