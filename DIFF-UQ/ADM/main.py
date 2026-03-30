@@ -203,6 +203,7 @@ def main(args, config):
 
     exp_dir = f"{args.exp_path}/{config.data.dataset}/ddim_{args.guidance_mode}_fixed_class{args.fixed_class}_train%{args.train_la_data_size}_step{args.timesteps}_S{args.mc_size}_epi_unc_{args.seed}/"
     os.makedirs(exp_dir, exist_ok=True)
+    np.save(os.path.join(exp_dir, "classes.npy"), fixed_classes.cpu().numpy())
 
     S, D = last_layers.shape
     for s in range(S):

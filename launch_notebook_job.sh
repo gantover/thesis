@@ -13,7 +13,7 @@
 ### -- specify that we want the job to get killed if it exceeds 5 GB per core/slot -- 
 #BSUB -M 5GB
 ### -- set walltime limit: hh:mm -- 
-#BSUB -W 24:00 
+#BSUB -W 12:00 
 ### -- set the email address -- 
 # please uncomment the following line and put in your e-mail address,
 # if you want to receive e-mail notifications on a non-default address
@@ -28,5 +28,5 @@
 #BSUB -e ./logs/Output_%J.err 
 
 # here follow the commands you want to execute with input.in as the input file
-source ../../.venv/bin/activate
+source .venv/bin/activate
 jupyter lab --no-browser --port=8888 --ip=$HOSTNAME
