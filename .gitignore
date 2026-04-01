@@ -217,3 +217,5 @@ Output_*.out
 
 *.pkl
 .claude
+old_.venv
+uv.lock

@@ -1,0 +1,38 @@
+[project]
+name = "thesis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "torch",
+    "torchvision",
+    "transformers",
+    "numpy>=2.0",
+    "tqdm>=4.67.3",
+    "pillow>=12.1.1",
+    "clip",
+    "laplace-torch>=0.2.2.2",
+    "click>=8.3.1",
+    "blobfile>=3.2.0",
+    "lmdb>=2.2.0",
+    "ml-collections>=1.1.0",
+    "pathlib>=1.0.1",
+    "matplotlib>=3.10.8",
+    "jupyter>=1.1.1",
+    "scipy>=1.17.1",
+    "open-clip-torch>=3.3.0",
+    "scikit-learn>=1.8.0",
+    "jax[cuda12]>=0.9.2",
+    "nbstripout>=0.9.1",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
+clip = { git = "https://github.com/openai/CLIP.git" }
