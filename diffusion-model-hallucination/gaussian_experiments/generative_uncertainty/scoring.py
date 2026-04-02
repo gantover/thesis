@@ -1,7 +1,7 @@
 import numpy as np
 import jax.numpy as jnp
 import pandas as pd
-import ot
+# import ot
 from sklearn.metrics.pairwise import rbf_kernel
 import scipy.stats as st
 from tqdm.auto import tqdm
@@ -72,23 +72,23 @@ def mixture_rbf_mmd(X, Y, gammas=[2.0, 10.0, 400.0]):
         mmd_sum += XX.mean() + YY.mean() - 2 * XY.mean()
     return mmd_sum
 
-def calculate_wasserstein(real_data, generated_data):
-    """Calculates the 2-Wasserstein distance between two 2D distributions."""
-    # Subsample to speed up calculation if datasets are huge (e.g., 5000 points)
-    assert len(real_data) <= 5000 and len(generated_data) <= 5000, "Subsample the data to at most 5000 points for efficiency."
-    assert len(real_data) == len(generated_data)
-    n = len(real_data)
+# def calculate_wasserstein(real_data, generated_data):
+#     """Calculates the 2-Wasserstein distance between two 2D distributions."""
+#     # Subsample to speed up calculation if datasets are huge (e.g., 5000 points)
+#     assert len(real_data) <= 5000 and len(generated_data) <= 5000, "Subsample the data to at most 5000 points for efficiency."
+#     assert len(real_data) == len(generated_data)
+#     n = len(real_data)
     
-    # Calculate pairwise Euclidean distance matrix
-    M = ot.dist(real_data, generated_data, metric='euclidean')
+#     # Calculate pairwise Euclidean distance matrix
+#     M = ot.dist(real_data, generated_data, metric='euclidean')
     
-    # Uniform weights for all points
-    a, b = jnp.ones((n,)) / n, jnp.ones((n,)) / n
+#     # Uniform weights for all points
+#     a, b = jnp.ones((n,)) / n, jnp.ones((n,)) / n
     
-    # Calculate exact Earth Mover's Distance
-    wasserstein_dist = ot.emd2(a, b, M)
-    # wasserstein_dist = ot.sinkhorn2(a, b, M, reg=0.01, numItermax=10000)[0]
-    return wasserstein_dist
+#     # Calculate exact Earth Mover's Distance
+#     wasserstein_dist = ot.emd2(a, b, M)
+#     # wasserstein_dist = ot.sinkhorn2(a, b, M, reg=0.01, numItermax=10000)[0]
+#     return wasserstein_dist
 
 def estimator(metric, real_data, generated_data, num_iterations=20, subsample_size=5000):
     """

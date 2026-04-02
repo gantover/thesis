@@ -1,5 +1,6 @@
 laplace-ensemble:
   llla_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/llla_sampled"
+  last_layer_name: "out_fc"
   laplace_batches: 64
   laplace_batch_size: 2048
   weight_sampling_seed: 42

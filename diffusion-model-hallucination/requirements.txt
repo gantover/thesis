@@ -1,5 +1,6 @@
-torch==1.13.0
-torchvision==0.14.0
+torch==2.2.0
+torchvision==0.17.0
+laplace-torch==0.2.2.2
 matplotlib
 wandb
 plotly

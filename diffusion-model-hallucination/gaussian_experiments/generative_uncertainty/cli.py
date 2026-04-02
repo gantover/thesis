@@ -49,6 +49,8 @@ def generate_llla_models(obj):
         laplace_batch_size=laplace_ensemble_config['laplace_batch_size'],
         weight_sampling_seed=laplace_ensemble_config['weight_sampling_seed'],
         sample_temperature=laplace_ensemble_config['sample_temperature'],
+        prior_precision=laplace_ensemble_config.get('prior_precision', 1e-2),
+        last_layer_name=laplace_ensemble_config.get('last_layer_name', 'out_fc'),
     )
 
 @cli.command()
