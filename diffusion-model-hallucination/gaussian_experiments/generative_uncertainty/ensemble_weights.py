@@ -97,6 +97,33 @@ class ToyCurvlinopsEF(CurvlinopsEF):
         return self.factor * loss, self.factor * diag_ef
 
 
+class ToyCurvlinopsGGN(CurvlinopsEF):
+    """GGN curvature backend: differentiates model output (not loss), no residuals."""
+
+    def gradients(self, x, y, t):
+        d = x.shape[-1]
+        Gs_list = []
+        for k in range(d):
+            def _output_k(x, t, params_dict, buffers_dict, _k=k):
+                x, t = x.unsqueeze(0), t.unsqueeze(0)
+                return torch.func.functional_call(self.model, (params_dict, buffers_dict), (x, t))[0, _k]
+
+            grad_fn = torch.func.grad(_output_k, argnums=2)
+            batch_grad_fn = torch.func.vmap(grad_fn, in_dims=(0, 0, None, None))
+            batch_grad_k = batch_grad_fn(x, t, self.params_dict, self.buffers_dict)
+            flat_k = torch.cat([g.flatten(start_dim=1) for g in batch_grad_k.values()], dim=1)
+            Gs_list.append(flat_k)
+
+        Gs = torch.cat(Gs_list, dim=0)  # (B*d, p_total)
+        if self.subnetwork_indices is not None:
+            Gs = Gs[:, self.subnetwork_indices]
+        return Gs, torch.zeros(1, device=x.device)
+
+    def diag(self, x, y, t, **kwargs):
+        Gs, _ = self.gradients(x, y, t)
+        return 0.0, self.factor * torch.einsum("bp,bp->p", Gs, Gs).detach()
+
+
 class ToyLLDiagLaplace(DiagLaplace):
     """DIFF-UQ-style DiagLaplace wrapper for toy diffusion calibration data."""
 
@@ -179,8 +206,7 @@ class ToyLLDiagLaplace(DiagLaplace):
         setattr(self.model, "output_size", self.n_outputs)
 
         N = len(train_loader.dataset)
-        for i, x_0 in enumerate(train_loader):
-            print(i)
+        for x_0 in train_loader:
             if isinstance(x_0, (tuple, list)):
                 x_0 = x_0[0]
 
@@ -216,6 +242,7 @@ def fit_last_layer_diag_laplace(
     prior_precision=1e-2,
     sample_temperature=1.0,
     last_layer_name="out_fc",
+    backend=ToyCurvlinopsEF,
 ):
     dataset = LaplaceCalibrationDataset(
         real_data=real_data,
@@ -229,9 +256,137 @@ def fit_last_layer_diag_laplace(
         last_layer_name=last_layer_name,
         prior_precision=prior_precision,
         temperature=sample_temperature,
+        backend=backend,
     )
     la.fit(train_loader)
     return la
+
+
+def _ef_diag_batch(adapter, x_t, y, t, flat_indices, params_dict, buffers_dict):
+    """Per-sample EF squared gradients at selected flat_indices. Returns (B, m) tensor."""
+    def loss_single(x, y, t, params_dict, buffers_dict):
+        x, y, t = x.unsqueeze(0), y.unsqueeze(0), t.unsqueeze(0)
+        output = torch.func.functional_call(adapter, (params_dict, buffers_dict), (x, t))
+        # Match laplace-torch regression scaling (MSELoss with reduction='sum').
+        loss = torch.nn.functional.mse_loss(output, y, reduction="sum")
+        return loss
+
+    grad_fn = torch.func.grad(loss_single, argnums=3)
+    batch_grad_fn = torch.func.vmap(grad_fn, in_dims=(0, 0, 0, None, None))
+    batch_grad = batch_grad_fn(x_t, y, t, params_dict, buffers_dict)
+    Gs = torch.cat([g.flatten(start_dim=1) for g in batch_grad.values()], dim=1)  # (B, p_total)
+    return Gs[:, flat_indices]  # (B, m)
+
+
+def _ggn_diag_batch(adapter, x_t, t, flat_indices, d, params_dict, buffers_dict):
+    """Per-sample GGN squared Jacobians at selected flat_indices. Returns (B*d, m) tensor."""
+    Gs_list = []
+    for k in range(d):
+        def _output_k(x, t, params_dict, buffers_dict, _k=k):
+            x, t = x.unsqueeze(0), t.unsqueeze(0)
+            return torch.func.functional_call(adapter, (params_dict, buffers_dict), (x, t))[0, _k]
+
+        grad_fn = torch.func.grad(_output_k, argnums=2)
+        batch_grad_fn = torch.func.vmap(grad_fn, in_dims=(0, 0, None, None))
+        batch_grad_k = batch_grad_fn(x_t, t, params_dict, buffers_dict)
+        flat_k = torch.cat([g.flatten(start_dim=1) for g in batch_grad_k.values()], dim=1)
+        Gs_list.append(flat_k)
+
+    Gs = torch.cat(Gs_list, dim=0)  # (B*d, p_total)
+    return Gs[:, flat_indices]  # (B*d, m)
+
+
+def _get_diffusion_target(diffusion, x_0, x_t, noise, t):
+    """Training target for the current diffusion mean parameterization."""
+    if diffusion.model_mean_type == "eps":
+        return noise
+    if diffusion.model_mean_type == "x_0":
+        return x_0
+    return diffusion.q_posterior_mean_var(x_0=x_0, x_t=x_t, t=t)[0]
+
+
+def _cap_posterior_sigma_by_std(sigma, max_posterior_std):
+    """Clip posterior std to avoid numerically unstable sampled networks in very flat directions."""
+    if max_posterior_std is None:
+        return sigma, 0.0
+
+    if max_posterior_std <= 0:
+        raise ValueError(f"max_posterior_std must be > 0 or None, got {max_posterior_std}.")
+
+    std = sigma.sqrt()
+    clipped = std > max_posterior_std
+    clipped_frac = clipped.float().mean().item()
+    if clipped.any():
+        std = std.clamp(max=max_posterior_std)
+    return std.square(), clipped_frac
+
+
+def _effective_max_std_for_subnetwork(max_posterior_std, m_eff, std_reference_subnetwork_size):
+    """Scale max posterior std as sqrt(m_ref / m_eff) for large random subnetworks.
+
+    This keeps the expected perturbation norm from exploding as m increases.
+    For m_eff <= m_ref, no extra scaling is applied.
+    """
+    if max_posterior_std is None:
+        return None
+
+    if std_reference_subnetwork_size is None:
+        return max_posterior_std
+
+    if std_reference_subnetwork_size <= 0:
+        raise ValueError(
+            f"std_reference_subnetwork_size must be > 0 or None, got {std_reference_subnetwork_size}."
+        )
+
+    scale = min(1.0, math.sqrt(float(std_reference_subnetwork_size) / float(m_eff)))
+    return max_posterior_std * scale
+
+
+def compute_diag_hessian(adapter, diffusion, real_data, curvature, flat_indices, n_batches, batch_size, prior_precision, device):
+    """Compute diagonal Hessian for a random subnetwork and return sigma=(H+prior)^{-1}.
+
+    This mirrors laplace-torch conventions used in the last-layer path:
+    - regression scaling factor 0.5,
+    - data-summed curvature (no extra 1/N averaging here).
+    """
+    if curvature not in {"ef", "ggn"}:
+        raise ValueError(f"Unsupported curvature '{curvature}'. Use 'ef' or 'ggn'.")
+
+    flat_indices = flat_indices.to(device=device, dtype=torch.long)
+
+    # Ensure all params have requires_grad for functional_call / vmap to differentiate them
+    for p in adapter.parameters():
+        p.requires_grad_(True)
+
+    dataset = LaplaceCalibrationDataset(real_data=real_data, total_samples=n_batches * batch_size)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
+    params_dict = dict(adapter.named_parameters())
+    buffers_dict = dict(adapter.named_buffers())
+    d = real_data.shape[-1]
+    m = len(flat_indices)
+
+    H_diag = torch.zeros(m, device=device)
+    # For regression likelihood, laplace-torch curvature backends use factor=0.5.
+    hessian_factor = 0.5
+
+    for x_0 in loader:
+        x_0 = x_0.to(device)
+        t = torch.randint(0, diffusion.timesteps, (x_0.shape[0],), device=device)
+        noise = torch.randn_like(x_0)
+        x_t = diffusion.q_sample(x_0, t, noise=noise)
+
+        if curvature == "ggn":
+            Gs = _ggn_diag_batch(adapter, x_t, t, flat_indices, d, params_dict, buffers_dict)
+        else:
+            y = _get_diffusion_target(diffusion=diffusion, x_0=x_0, x_t=x_t, noise=noise, t=t)
+            Gs = _ef_diag_batch(adapter, x_t, y, t, flat_indices, params_dict, buffers_dict)
+
+        # Sum curvature contributions over data points; no additional 1/N averaging.
+        H_diag += hessian_factor * torch.einsum("bp,bp->p", Gs.detach(), Gs.detach())
+
+    sigma = 1.0 / (H_diag + prior_precision)
+    return sigma
 
 
 def sample_last_layer_model(base_model, sampled_layer_vector, device, last_layer_name="out_fc"):
@@ -246,6 +401,17 @@ def sample_last_layer_model(base_model, sampled_layer_vector, device, last_layer
     sampled_model.to(device)
     sampled_model.eval()
     return sampled_model
+
+
+def sample_subset_model(base_model, sampled_vector, flat_indices, device):
+    """Inject sampled_vector at flat_indices positions into a deep copy of base_model."""
+    sampled = copy.deepcopy(base_model)
+    flat = parameters_to_vector(sampled.parameters()).detach().clone()
+    flat[flat_indices.to(flat.device)] = sampled_vector.to(flat.device)
+    vector_to_parameters(flat, sampled.parameters())
+    sampled.to(device)
+    sampled.eval()
+    return sampled
 
 
 def load_model_from_checkpoint(chkpt_path, device):
@@ -363,5 +529,147 @@ def build_last_layer_laplace_models(
         torch.save(sampled_model.state_dict(), model_cache_path)
         print(f"Saved sampled model to cache: {model_cache_path}")
         models.append(sampled_model)
+
+    return models
+
+
+def build_laplace_ensemble(
+    trained_models_dir,
+    llla_sampled_models_dir,
+    diffusion,
+    device,
+    sel_generation=0,
+    M=5,
+    laplace_batches=64,
+    laplace_batch_size=2048,
+    prior_precision=1e-2,
+    sample_temperature=1.0,
+    weight_sampling_seed=None,
+    last_layer_name="out_fc",
+    subset="last_layer",    # 'last_layer' | 'random'
+    curvature="ef",         # 'ef' | 'ggn'
+    m=1000,                 # subnetwork size (only for subset='random')
+    subset_seed=42,
+    max_posterior_std=1.0,
+    std_reference_subnetwork_size=1000,
+):
+    """Factory for MC ensemble via Laplace posterior.
+
+    subset='last_layer': fits DiagLaplace on last affine layer only (uses laplace-torch internals).
+    subset='random':     fits diagonal Hessian on m random parameters across all layers.
+    curvature='ef':      empirical Fisher (gradient of loss).
+    curvature='ggn':     generalized Gauss-Newton (gradient of output, no residuals).
+    """
+    print(f"Building Laplace ensemble: subset={subset}, curvature={curvature}")
+
+    chkpt_dir = Path(trained_models_dir.format(seed=0))
+    base_model = load_base_model(trained_models_dir=trained_models_dir, sel_generation=sel_generation, device=device)
+
+    real_dataset_path = chkpt_dir / "real_dataset.npy"
+    if not os.path.exists(real_dataset_path):
+        raise FileNotFoundError(f"Missing calibration data: {real_dataset_path}")
+    real_data = np.load(real_dataset_path)
+
+    if weight_sampling_seed is not None:
+        torch.manual_seed(weight_sampling_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(weight_sampling_seed)
+
+    llla_chkpt_dir = Path(llla_sampled_models_dir)
+    llla_chkpt_dir.mkdir(parents=True, exist_ok=True)
+
+    if subset == "last_layer":
+        backend_cls = ToyCurvlinopsGGN if curvature == "ggn" else ToyCurvlinopsEF
+        la = fit_last_layer_diag_laplace(
+            model=base_model,
+            diffusion=diffusion,
+            real_data=real_data,
+            device=device,
+            laplace_batches=laplace_batches,
+            laplace_batch_size=laplace_batch_size,
+            prior_precision=prior_precision,
+            sample_temperature=sample_temperature,
+            last_layer_name=last_layer_name,
+            backend=backend_cls,
+        )
+        sampled_layers = la.sample(M)
+        if sampled_layers.ndim == 1:
+            sampled_layers = sampled_layers.unsqueeze(0)
+
+        models = [base_model]
+        for i in range(M):
+            sampled_model = sample_last_layer_model(
+                base_model=base_model,
+                sampled_layer_vector=sampled_layers[i],
+                device=device,
+                last_layer_name=last_layer_name,
+            )
+            model_cache_path = llla_chkpt_dir / f"llla_sample_{i}.pt"
+            torch.save(sampled_model.state_dict(), model_cache_path)
+            print(f"Saved sampled model: {model_cache_path}")
+            models.append(sampled_model)
+
+    else:  # subset == 'random'
+        # Use a deep copy for the adapter so that vmap/functional_call TensorWrapper state
+        # does not leak back into base_model (which must stay deepcopy-able for sampling).
+        adapter = LaplaceDecoderAdapter(copy.deepcopy(base_model)).to(device)
+        total_params = sum(p.numel() for p in adapter.parameters())
+        if m <= 0:
+            raise ValueError(f"m must be > 0, got {m}.")
+        m_eff = min(m, total_params)
+        if m_eff < m:
+            print(f"Warning: requested m={m} exceeds total_params={total_params}; using m={m_eff}.")
+
+        rng = torch.Generator()
+        rng.manual_seed(subset_seed)
+        flat_indices = torch.randperm(total_params, generator=rng)[:m_eff].to(device)
+
+        sigma = compute_diag_hessian(
+            adapter=adapter,
+            diffusion=diffusion,
+            real_data=real_data,
+            curvature=curvature,
+            flat_indices=flat_indices,
+            n_batches=laplace_batches,
+            batch_size=laplace_batch_size,
+            prior_precision=prior_precision,
+            device=device,
+        )
+        # sigma shape: (m,). Scale by temperature^2 (legacy behavior used in this project).
+        sigma = torch.clamp(sigma, min=1e-12) * (sample_temperature ** 2)
+
+        eff_max_std = _effective_max_std_for_subnetwork(
+            max_posterior_std=max_posterior_std,
+            m_eff=m_eff,
+            std_reference_subnetwork_size=std_reference_subnetwork_size,
+        )
+        sigma, clipped_frac = _cap_posterior_sigma_by_std(
+            sigma=sigma,
+            max_posterior_std=eff_max_std,
+        )
+        print(
+            "Random subset posterior sigma stats: "
+            f"min={sigma.min().item():.3e}, median={sigma.median().item():.3e}, max={sigma.max().item():.3e}, "
+            f"std_clip_frac={clipped_frac:.3f}, effective_max_std={eff_max_std}"
+        )
+
+        # Sample M weight vectors from N(mean, diag(sigma)).
+        # Use base_model (not adapter) to get the mean — same parameter ordering, adapter is now tainted.
+        mean_subset = parameters_to_vector(base_model.parameters()).detach()[flat_indices]
+        eps = torch.randn(M, m_eff, device=device)
+        sampled_layers = mean_subset.unsqueeze(0) + eps * sigma.sqrt().unsqueeze(0)
+
+        models = [base_model]
+        for i in range(M):
+            sampled_model = sample_subset_model(
+                base_model=base_model,
+                sampled_vector=sampled_layers[i],
+                flat_indices=flat_indices,
+                device=device,
+            )
+            model_cache_path = llla_chkpt_dir / f"llla_sample_{i}.pt"
+            torch.save(sampled_model.state_dict(), model_cache_path)
+            print(f"Saved sampled model: {model_cache_path}")
+            models.append(sampled_model)
 
     return models

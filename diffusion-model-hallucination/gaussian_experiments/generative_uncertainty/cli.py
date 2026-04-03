@@ -1,11 +1,11 @@
 import click
 import yaml
-from pathlib import Path
 import os
 import torch
+from pathlib import Path
 
 from .ensemble_weights import (
-    build_last_layer_laplace_models,
+    build_laplace_ensemble,
     get_diffusion,
 )
 
@@ -13,6 +13,9 @@ from .ensemble_sampling import (
     gen_deep_ensemble_samples,
     gen_llla_ensemble_samples,
 )
+
+from .flare import generate_flare_scores as _generate_flare_scores
+
 
 @click.group()
 @click.option("--config", default="config.yml")
@@ -22,7 +25,7 @@ def cli(ctx, config):
     config_data = {}
     if os.path.exists(config):
         with open(config, 'r') as f:
-            config_data = yaml.safe_load(f) or {} 
+            config_data = yaml.safe_load(f) or {}
     else:
         click.echo(f"Warning: Config file '{config}' not found. Using defaults.", err=True)
     ctx.obj.update(config_data)
@@ -30,27 +33,32 @@ def cli(ctx, config):
     print(f"Using device: {device}")
     ctx.obj['device'] = device
 
+
 @cli.command()
 @click.pass_obj
 def generate_llla_models(obj):
-    laplace_ensemble_config = obj['laplace-ensemble']
-    deep_ensemble_config = obj['deep-ensemble']
+    lc = obj['laplace-ensemble']
+    dc = obj['deep-ensemble']
 
-    diffusion = get_diffusion()
-
-    build_last_layer_laplace_models(
-        trained_models_dir=deep_ensemble_config['trained_models_dir'],
-        llla_sampled_models_dir=laplace_ensemble_config['llla_sampled_models_dir'],
-        diffusion=diffusion,
+    build_laplace_ensemble(
+        trained_models_dir=dc['trained_models_dir'],
+        llla_sampled_models_dir=lc['llla_sampled_models_dir'],
+        diffusion=get_diffusion(),
         device=obj['device'],
-        sel_generation=deep_ensemble_config['sel_generation'],
-        M=deep_ensemble_config['M'],
-        laplace_batches=laplace_ensemble_config['laplace_batches'],
-        laplace_batch_size=laplace_ensemble_config['laplace_batch_size'],
-        weight_sampling_seed=laplace_ensemble_config['weight_sampling_seed'],
-        sample_temperature=laplace_ensemble_config['sample_temperature'],
-        prior_precision=laplace_ensemble_config.get('prior_precision', 1e-2),
-        last_layer_name=laplace_ensemble_config.get('last_layer_name', 'out_fc'),
+        sel_generation=dc['sel_generation'],
+        M=dc['M'],
+        laplace_batches=lc['laplace_batches'],
+        laplace_batch_size=lc['laplace_batch_size'],
+        weight_sampling_seed=lc['weight_sampling_seed'],
+        sample_temperature=lc['sample_temperature'],
+        prior_precision=lc.get('prior_precision', 1e-2),
+        last_layer_name=lc.get('last_layer_name', 'out_fc'),
+        subset=lc.get('subset', 'last_layer'),
+        curvature=lc.get('curvature', 'ef'),
+        m=lc.get('m', 1000),
+        subset_seed=lc.get('subset_seed', 42),
+        max_posterior_std=lc.get('max_posterior_std', 1.0),
+        std_reference_subnetwork_size=lc.get('std_reference_subnetwork_size', 1000),
     )
 
 @cli.command()
@@ -80,4 +88,33 @@ def generate_deep_ensemble_samples(obj):
         trained_models_dir=obj['deep-ensemble']['trained_models_dir'],
         sel_generation=obj['deep-ensemble']['sel_generation'],
         M=obj['deep-ensemble']['M'],
+    )
+
+
+@cli.command()
+@click.pass_obj
+def generate_flare_scores(obj):
+    lc = obj['laplace-ensemble']
+    dc = obj['deep-ensemble']
+
+    chkpt_dir = Path(dc['trained_models_dir'].format(seed=0))
+    real_data_path = chkpt_dir / "real_dataset.npy"
+
+    _generate_flare_scores(
+        n_score_samples=lc['n_score_samples'],
+        device=obj['device'],
+        flare_samples_cache_dir=lc['flare_samples_cache_dir'],
+        trained_models_dir=dc['trained_models_dir'],
+        sel_generation=dc['sel_generation'],
+        real_data_path=str(real_data_path),
+        subset=lc.get('subset', 'last_layer'),
+        curvature=lc.get('curvature', 'ef'),
+        m=lc.get('m', 1000),
+        prior_precision=lc.get('prior_precision', 1e-2),
+        last_layer_name=lc.get('last_layer_name', 'out_fc'),
+        seed=lc.get('subset_seed', 42),
+        max_posterior_std=lc.get('max_posterior_std', 1.0),
+        std_reference_subnetwork_size=lc.get('std_reference_subnetwork_size', 1000),
+        n_batches=lc['laplace_batches'],
+        batch_size=lc['laplace_batch_size'],
     )
