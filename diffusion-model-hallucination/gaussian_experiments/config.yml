@@ -1,21 +1,56 @@
 laplace-ensemble:
+  # --- File Paths & Basic Model Details ---
   llla_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/llla_sampled"
-  last_layer_name: "out_fc"
+  last_layer_name: "out_fc" # Only used if subset='last_layer'
+  
+  # --- Compute / Resource Parameters ---
+  # Essential for accuracy: How much data you use to compute the Hessian matrix. 
+  # Higher = better approximation, but takes longer and uses more memory. 64x2048 is a good robust default.
   laplace_batches: 64
   laplace_batch_size: 2048
-  weight_sampling_seed: 42
-  sample_temperature: 0.5
-  prior_precision: 0.01
-  # Toggle: 'last_layer' (only out_fc) | 'random' (m params across all layers)
+
+  # --- CRITICAL REGULARIZATION PARAMETERS (ESSENTIAL FOR GOOD RESULTS) ---
+  # Essential: Acts as the `lambda` in (H + \lambda I)^-1. High values (e.g., 10.0) 
+  # strictly prevent the model from collapsing to noise by regularizing flat directions in the loss landscape.
+  prior_precision: 400.0 
+  
+  # Essential: Hard cap on how much a single parameter can be perturbed. Needs to be low 
+  # for neural networks (e.g., 0.05 - 0.1) so weights don't explode.
+  max_posterior_std: null 
+  
+  # Simplification: With proper prior_precision & max_posterior_std, you can just leave this at 1.0 (no effect).
+  sample_temperature: 1.0 
+
+  # --- Algorithmic Choices (ESSENTIAL) ---
+  # Essential: 'ggn' (Generalized Gauss-Newton) is mathematically the most robust and matches your paper's derivation.
+  curvature: "ggn"
+  
+  # Essential: 'last_layer' is safer but less expressive. 'random' is more expressive but requires tuning the regularizers above.
   subset: "random"
-  # Toggle: 'ef' (empirical Fisher, grad of loss) | 'ggn' (generalized GN, grad of output)
-  curvature: "ef"
-  m: 1000                # subnetwork size (only used when subset='random')
-  subset_seed: 42        # RNG seed for random subset selection
-  max_posterior_std: 1.0 # cap on posterior std for random-subnetwork stability; set null to disable
-  std_reference_subnetwork_size: 1000 # scales cap as sqrt(m_ref / m) when m > m_ref
-  n_score_samples: 1000  # number of samples for FLARE scoring
+  
+  # Essential if subset='random': Number of parameters to capture. 3000 is a sweet spot. 
+  # Too low = no uncertainty diversity. Too high = requires extreme prior_precision to remain stable.
+  m: 1000 
+
+  # --- Optional / Fine-Tuning ---
+  # Optional: Automatically tightens the max_posterior_std if you drastically increase 'm'. 
+  # You can ignore modifying this as long as you keep 'm' around 1000-5000.
+  std_reference_subnetwork_size: 1000 
+
+  # Reproducibility & Downstream Tasks ---
+  weight_sampling_seed: 42
+  subset_seed: 42        
+  n_score_samples: 1000  # number of samples for FLARE scoring (downstream task)
   flare_samples_cache_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples/flare"
+
+lora-ensemble:
+  lora_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/lora_sampled"
+  M: 5
+  r: 16
+  alpha: 4.0
+  epochs: 20 
+  lr: 0.001
+  batch_size: 2048
 
 # was trained with Aithal et al. original code
 deep-ensemble:

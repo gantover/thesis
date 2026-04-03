@@ -9,12 +9,12 @@ from tqdm.auto import tqdm
 from scipy.special import logsumexp
 from scipy.stats import entropy
 
-def gmm_score_percentiles(real_data, ensemble_samples, uncertainty_scores, percentiles=None):
+def gmm_score_percentiles(real_data, ensemble_samples, uncertainty_scores, percentiles=None, percentile_step=1):
     true_means, true_var = extract_true_gmm_params()
 
     df = pd.DataFrame()
     if percentiles is None:
-        percentiles = list(np.arange(70, 101, 1))
+        percentiles = list(np.arange(70, 101, percentile_step))
 
     for percentile in tqdm(percentiles):
         percentile_score = jnp.percentile(uncertainty_scores, percentile)
@@ -58,37 +58,6 @@ def single_rbf_mmd(X, Y, gamma=None):
     YY = rbf_kernel(Y, Y, gamma)
     XY = rbf_kernel(X, Y, gamma)
     return XX.mean() + YY.mean() - 2 * XY.mean()
-
-def mixture_rbf_mmd(X, Y, gammas=[2.0, 10.0, 400.0]):
-    """
-    Calculates MMD using a mixture of RBF kernels to capture both 
-    local and global distribution structures.
-    """
-    mmd_sum = 0
-    for gamma in gammas:
-        XX = rbf_kernel(X, X, gamma)
-        YY = rbf_kernel(Y, Y, gamma)
-        XY = rbf_kernel(X, Y, gamma)
-        mmd_sum += XX.mean() + YY.mean() - 2 * XY.mean()
-    return mmd_sum
-
-# def calculate_wasserstein(real_data, generated_data):
-#     """Calculates the 2-Wasserstein distance between two 2D distributions."""
-#     # Subsample to speed up calculation if datasets are huge (e.g., 5000 points)
-#     assert len(real_data) <= 5000 and len(generated_data) <= 5000, "Subsample the data to at most 5000 points for efficiency."
-#     assert len(real_data) == len(generated_data)
-#     n = len(real_data)
-    
-#     # Calculate pairwise Euclidean distance matrix
-#     M = ot.dist(real_data, generated_data, metric='euclidean')
-    
-#     # Uniform weights for all points
-#     a, b = jnp.ones((n,)) / n, jnp.ones((n,)) / n
-    
-#     # Calculate exact Earth Mover's Distance
-#     wasserstein_dist = ot.emd2(a, b, M)
-#     # wasserstein_dist = ot.sinkhorn2(a, b, M, reg=0.01, numItermax=10000)[0]
-#     return wasserstein_dist
 
 def estimator(metric, real_data, generated_data, num_iterations=20, subsample_size=5000):
     """

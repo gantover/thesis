@@ -2,11 +2,12 @@ import os
 import numpy as np
 import torch
 from pathlib import Path
-from .ensemble_weights import (
+from .ensemble_weights import get_diffusion
+from .model_loading import (
     load_deep_ensemble_models,
     load_llla_sampled_models,
+    load_lora_ensemble_models,
     load_base_model,
-    get_diffusion,
 )
 
 def gen_deep_ensemble_samples(num_samples, batch_size, device, samples_cache_dir, trained_models_dir, sel_generation, M):
@@ -21,6 +22,14 @@ def gen_llla_ensemble_samples(num_samples, batch_size, device, samples_cache_dir
     models = [base_model] + llla_models
     Path(samples_cache_dir).mkdir(parents=True, exist_ok=True)
     samples_cache_path = Path(samples_cache_dir) / "llla_ensemble_samples.npy"
+    sample_ensemble_samples(ensemble_models=models, num_samples=num_samples, batch_size=batch_size, device=device, samples_cache_path=samples_cache_path)
+
+def gen_lora_ensemble_samples(num_samples, batch_size, device, samples_cache_dir, lora_sampled_models_dir, trained_models_dir, sel_generation, M, r, alpha):
+    base_model = load_base_model(trained_models_dir=trained_models_dir, sel_generation=sel_generation, device=device)
+    lora_models = load_lora_ensemble_models(lora_sampled_models_dir=lora_sampled_models_dir, base_model=base_model, M=M, r=r, alpha=alpha, device=device)
+    models = [base_model] + lora_models
+    Path(samples_cache_dir).mkdir(parents=True, exist_ok=True)
+    samples_cache_path = Path(samples_cache_dir) / "lora_ensemble_samples.npy"
     sample_ensemble_samples(ensemble_models=models, num_samples=num_samples, batch_size=batch_size, device=device, samples_cache_path=samples_cache_path)
 
 def sample_ensemble_samples(ensemble_models, num_samples, batch_size, device, samples_cache_path):
