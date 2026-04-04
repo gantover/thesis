@@ -1,217 +1,294 @@
-"""FLARE: Fisher-Laplace Randomized Epistemic uncertainty estimator.
+"""FLARE implementation for toy Gaussian diffusion experiments.
 
-Implements Jacobian-propagated epistemic trace scoring (Gupta et al., arXiv:2602.09170)
-for the toy 2D Gaussian diffusion experiment.
+This module implements Algorithm 1 from Gupta et al.:
+1) Build a random (or layer-restricted) subnetwork posterior
+   Sigma_sub = (H_I + lambda I)^(-1), where H_I is an empirical Fisher block.
+2) Run reverse denoising while propagating epistemic uncertainty with
+   Sigma_ep(t-1) = a_t^2 Sigma_ep(t) + b_t^2 Delta_t,
+   Delta_t = J_t Sigma_sub J_t^T.
 
-Per-sample epistemic trace recursion (Eq. 5 in the paper):
-    Sigma^ep_{t-1} = a_t^2 * Sigma^ep_t + b_t^2 * J_{t,I} diag(sigma) J_{t,I}^T
-
-where:
-    a_t = 1 / sqrt(1 - betas[t])
-    b_t = betas[t] / (sqrt(1 - betas[t]) * sqrt_one_minus_alphas_bar[t])
-    sigma = posterior variance of the selected m parameters (shape (m,))
-    J_{t,I} = Jacobian rows for output dims, columns for selected params -> shape (d, m)
-    trace = sum_k sum_j sigma_j * (d eps_k / d theta_j)^2
-
-The score returned is epi_trace (a scalar per sample), larger = more uncertain.
-
-Raw Decoder is used for Jacobians (TorchScript is compatible with standard autograd).
-LaplaceDecoderAdapter is used only during Hessian fitting.
+For speed, Jacobians are batched with torch.func (vmap + jacrev).
 """
 
-import torch
+from pathlib import Path
+from typing import Dict, Iterable, Tuple
+
 import numpy as np
+import torch
+from torch.func import functional_call, jacrev, vmap
+from tqdm.auto import tqdm
 
-from .ensemble_weights import (
-    LaplaceDecoderAdapter,
-    _cap_posterior_sigma_by_std,
-    _effective_max_std_for_subnetwork,
-    compute_diag_hessian,
-    get_diffusion,
-    load_base_model,
-)
+from .model_loading import load_base_model
+from .ensemble_weights import get_diffusion
 
 
-class FlareLaplace:
-    """Diagonal Laplace posterior + FLARE Jacobian-propagated epistemic scoring.
-
-    Args:
-        model:            Raw Decoder (NOT wrapped in LaplaceDecoderAdapter).
-        diffusion:        GaussianDiffusion instance.
-        subset:           'last_layer' or 'random'.
-        curvature:        'ef' or 'ggn'.
-        m:                Subnetwork size (only for subset='random').
-        prior_precision:  Prior precision for diagonal Laplace posterior.
-        last_layer_name:  Name prefix of last-layer parameters (for subset='last_layer').
-        seed:             RNG seed for random subset selection (should match MC ensemble).
-    """
+class FLAREEstimator:
+    """Fisher-Laplace Randomized Estimator for toy denoisers."""
 
     def __init__(
         self,
-        model,
+        model: torch.nn.Module,
         diffusion,
-        subset="last_layer",
-        curvature="ef",
-        m=1000,
-        prior_precision=1e-2,
-        last_layer_name="out_fc",
-        seed=42,
-        max_posterior_std=1.0,
-        std_reference_subnetwork_size=1000,
+        subset: str = "random",
+        m: int = 512,
+        damping: float = 1e-4,
+        seed: int = 42,
+        last_layer_name: str = "out_fc",
+        max_posterior_std: float | None = 1.0,
+        delta_clip_max: float = 1e12,
+        score_clip_max: float = 1e20,
     ):
+        if m <= 0:
+            raise ValueError(f"m must be > 0, got {m}.")
+        if damping <= 0:
+            raise ValueError(f"damping must be > 0, got {damping}.")
+        if max_posterior_std is not None and max_posterior_std <= 0:
+            raise ValueError("max_posterior_std must be > 0 or None.")
+        if delta_clip_max <= 0 or score_clip_max <= 0:
+            raise ValueError("delta_clip_max and score_clip_max must be > 0.")
+
         self.model = model
         self.diffusion = diffusion
         self.subset = subset
-        self.curvature = curvature
-        self.prior_precision = prior_precision
+        self.m = m
+        self.damping = damping
+        self.seed = seed
         self.last_layer_name = last_layer_name
         self.max_posterior_std = max_posterior_std
-        self.std_reference_subnetwork_size = std_reference_subnetwork_size
-        self.d = 2  # output dimension for toy experiment
+        self.delta_clip_max = delta_clip_max
+        self.score_clip_max = score_clip_max
 
-        # Precompute DDPM reverse-step coefficients
-        betas = diffusion.betas.float()
-        alphas = 1.0 - betas
-        self._betas = betas
-        self._a = 1.0 / alphas.sqrt()  # a_t = 1/sqrt(alpha_t)
-        self._b = betas / (alphas.sqrt() * diffusion.sqrt_one_minus_alphas_bar.float())
+        self.model.eval()
 
-        # Select which parameters to score Jacobians against
-        if subset == "last_layer":
-            self.grad_params = [p for name, p in model.named_parameters() if last_layer_name in name]
-            self.flat_indices = None  # means: use the selected params as-is
-        else:
-            all_params = list(model.parameters())
-            total = sum(p.numel() for p in all_params)
-            rng = torch.Generator()
-            rng.manual_seed(seed)
-            self.flat_indices = torch.randperm(total, generator=rng)[:m]
-            self.grad_params = all_params  # need grads for all, then index
+        self._param_names = [name for name, _ in self.model.named_parameters()]
+        self._param_numels = [param.numel() for _, param in self.model.named_parameters()]
+        self._total_params = int(sum(self._param_numels))
 
-        self.sigma = None  # set by fit()
+        self._subnetwork_indices = self._sample_subnetwork_indices()
+        self.sigma_sub = None
 
-    def fit(self, real_data, device, n_batches=64, batch_size=2048):
-        """Fit diagonal Laplace posterior; store sigma = (H_diag + prior)^{-1}."""
-        adapter = LaplaceDecoderAdapter(self.model).to(device)
+        # FLARE recursion coefficients.
+        betas = self.diffusion.betas.float()
+        alphas = (1.0 - betas).float()
+        alpha_bars = torch.cumprod(alphas, dim=0)
+        self._a = torch.rsqrt(alphas)
+        self._eps_coef = betas / torch.sqrt(torch.clamp(1.0 - alpha_bars, min=1e-12))
+        self._b = betas / (torch.sqrt(alphas) * torch.sqrt(torch.clamp(1.0 - alpha_bars, min=1e-12)))
+
+    def _sample_subnetwork_indices(self) -> torch.Tensor:
+        if self.subset == "all":
+            return torch.arange(self._total_params, dtype=torch.long)
 
         if self.subset == "last_layer":
-            # Flat indices for last-layer params relative to adapter's full parameter vector
-            flat_idx = []
+            indices = []
             offset = 0
-            for name, p in adapter.named_parameters():
+            for name, param in self.model.named_parameters():
+                numel = param.numel()
                 if self.last_layer_name in name:
-                    flat_idx.append(torch.arange(offset, offset + p.numel()))
-                offset += p.numel()
-            flat_indices = torch.cat(flat_idx)
-        else:
-            flat_indices = self.flat_indices
+                    indices.extend(range(offset, offset + numel))
+                offset += numel
+            if not indices:
+                raise ValueError(
+                    f"No parameters matched last_layer_name='{self.last_layer_name}'."
+                )
+            return torch.tensor(indices, dtype=torch.long)
 
-        sigma = compute_diag_hessian(
-            adapter=adapter,
-            diffusion=self.diffusion,
-            real_data=real_data,
-            curvature=self.curvature,
-            flat_indices=flat_indices,
-            n_batches=n_batches,
-            batch_size=batch_size,
-            prior_precision=self.prior_precision,
-            device=device,
-        )
-        eff_max_std = self.max_posterior_std
+        if self.subset == "multi_layer":
+            indices = []
+            offset = 0
+            layer_names = [name.strip() for name in self.last_layer_name.split(",")]
+            for name, param in self.model.named_parameters():
+                numel = param.numel()
+                if any(layer_name in name for layer_name in layer_names):
+                    indices.extend(range(offset, offset + numel))
+                offset += numel
+            if not indices:
+                raise ValueError(f"No parameters matched names={layer_names}.")
+            return torch.tensor(indices, dtype=torch.long)
+
         if self.subset == "random":
-            eff_max_std = _effective_max_std_for_subnetwork(
-                max_posterior_std=self.max_posterior_std,
-                m_eff=len(flat_indices),
-                std_reference_subnetwork_size=self.std_reference_subnetwork_size,
-            )
+            m_eff = min(self.m, self._total_params)
+            generator = torch.Generator().manual_seed(self.seed)
+            return torch.randperm(self._total_params, generator=generator)[:m_eff].sort().values
 
-        sigma, clipped_frac = _cap_posterior_sigma_by_std(
-            sigma=sigma,
-            max_posterior_std=eff_max_std,
+        raise ValueError(
+            f"Unknown subset '{self.subset}'. Use one of ['random', 'last_layer', 'multi_layer', 'all']."
         )
-        self.sigma = sigma.to(device)
-        self._fit_flat_indices = flat_indices.to(device)
+
+    def _get_functional_state(self, device: torch.device) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        params = {
+            name: param.detach().to(device).requires_grad_(True)
+            for name, param in self.model.named_parameters()
+        }
+        buffers = {
+            name: buf.detach().to(device)
+            for name, buf in self.model.named_buffers()
+        }
+        return params, buffers
+
+    def _flatten_jacobian(self, jacobian_pytree: Dict[str, torch.Tensor]) -> torch.Tensor:
+        parts = []
+        for name in self._param_names:
+            jac = jacobian_pytree[name]
+            parts.append(jac.reshape(jac.shape[0], jac.shape[1], -1))
+        return torch.cat(parts, dim=-1)
+
+    def fit(
+        self,
+        real_data: np.ndarray,
+        device: torch.device,
+        n_batches: int = 64,
+        batch_size: int = 512,
+    ) -> torch.Tensor:
+        """Fit subnetwork covariance Sigma_sub = (H_I + lambda I)^(-1)."""
+        if n_batches <= 0 or batch_size <= 0:
+            raise ValueError("n_batches and batch_size must be > 0.")
+
+        data = torch.as_tensor(real_data, dtype=torch.float32, device=device)
+        if data.ndim == 1:
+            data = data.unsqueeze(1)
+
+        params, buffers = self._get_functional_state(device)
+        sub_idx = self._subnetwork_indices.to(device)
+        m_eff = int(sub_idx.numel())
+
+        def _forward_single(p, b, x, t):
+            return functional_call(self.model, (p, b), (x.unsqueeze(0), t.unsqueeze(0))).squeeze(0)
+
+        jacobian_fn = vmap(jacrev(_forward_single, argnums=0), in_dims=(None, None, 0, 0))
+
+        h_sub = torch.zeros((m_eff, m_eff), dtype=torch.float64, device=device)
+        count = 0
+
+        self.model.eval()
+        for _ in tqdm(range(n_batches), desc="FLARE Fisher", leave=False):
+            batch_ids = torch.randint(0, data.shape[0], (batch_size,), device=device)
+            x_0 = data[batch_ids]
+            t = torch.randint(0, self.diffusion.timesteps, (batch_size,), device=device)
+            noise = torch.randn_like(x_0)
+            x_t = self.diffusion.q_sample(x_0, t, noise=noise)
+
+            with torch.enable_grad():
+                jac_pytree = jacobian_fn(params, buffers, x_t, t)
+
+            jac = self._flatten_jacobian(jac_pytree)[:, :, sub_idx].detach().to(torch.float64)
+            jac = torch.nan_to_num(jac, nan=0.0, posinf=0.0, neginf=0.0)
+            h_sub += torch.einsum("bdm,bdn->mn", jac, jac)
+            count += x_t.shape[0]
+
+        h_sub /= float(max(count, 1))
+
+        eye = torch.eye(m_eff, device=device, dtype=torch.float64)
+        damped = h_sub + self.damping * eye
+        try:
+            l_factor = torch.linalg.cholesky(damped)
+            sigma_sub = torch.cholesky_solve(eye, l_factor)
+        except RuntimeError:
+            sigma_sub = torch.linalg.pinv(damped)
+
+        # Optional global scaling to avoid unrealistically large posterior variance.
+        if self.max_posterior_std is not None:
+            max_var = float(self.max_posterior_std) ** 2
+            diag = torch.diag(sigma_sub)
+            diag = torch.nan_to_num(diag, nan=max_var, posinf=max_var, neginf=max_var)
+            max_diag = torch.max(diag)
+            if torch.isfinite(max_diag) and max_diag > max_var:
+                sigma_sub = sigma_sub * (max_var / max_diag)
+
+        diag_after = torch.diag(sigma_sub)
+        diag_after = torch.nan_to_num(diag_after, nan=0.0, posinf=0.0, neginf=0.0)
         print(
-            "FLARE fit done. sigma: "
-            f"min={sigma.min():.4e}, max={sigma.max():.4e}, mean={sigma.mean():.4e}, "
-            f"std_clip_frac={clipped_frac:.3f}, effective_max_std={eff_max_std}"
+            "FLARE Sigma_sub stats: "
+            f"diag_min={diag_after.min().item():.4e}, "
+            f"diag_max={diag_after.max().item():.4e}, "
+            f"diag_mean={diag_after.mean().item():.4e}"
         )
 
-    def score(self, n_samples, device):
-        """Generate n_samples from the reverse process and return (samples, epi_traces).
+        self.sigma_sub = sigma_sub.detach()
+        return self.sigma_sub
 
-        Returns:
-            samples:     np.ndarray of shape (n_samples, 2)
-            epi_traces:  np.ndarray of shape (n_samples,)
+    def sample_and_score(
+        self,
+        n_samples: int,
+        sample_shape: Tuple[int, ...],
+        device: torch.device,
+        batch_size: int = 128,
+        tail_steps: int = 0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Sample x_0 and FLARE trace scores.
+
+        Args:
+            n_samples: total number of generated samples.
+            sample_shape: tuple like (2,) for 2D toy or (1,) for 1D toy.
+            batch_size: score batch size; use modest values to keep Jacobians cheap.
+            tail_steps: if > 0, only accumulate FLARE over timesteps t < tail_steps.
         """
-        if self.sigma is None:
-            raise RuntimeError("Call fit() before score().")
+        if self.sigma_sub is None:
+            raise RuntimeError("Call fit() before sample_and_score().")
+        if n_samples <= 0 or batch_size <= 0:
+            raise ValueError("n_samples and batch_size must be > 0.")
+        if tail_steps < 0:
+            raise ValueError("tail_steps must be >= 0.")
 
-        samples = []
-        scores = []
-        for _ in range(n_samples):
-            x0, epi = self._flare_trajectory(device)
-            samples.append(x0.cpu().numpy())
-            scores.append(epi)
+        params, buffers = self._get_functional_state(device)
+        sub_idx = self._subnetwork_indices.to(device)
+        sigma_sub = self.sigma_sub.to(device)
 
-        return np.stack(samples), np.array(scores)
+        a = self._a.to(device).to(torch.float64)
+        b = self._b.to(device).to(torch.float64)
+        eps_coef = self._eps_coef.to(device)
 
-    def _flat_grad(self, device):
-        """Collect gradients from grad_params into a flat vector, then index by flat_indices if needed."""
-        grads = []
-        for p in self.grad_params:
-            if p.grad is None:
-                grads.append(torch.zeros(p.numel(), device=device))
-            else:
-                grads.append(p.grad.detach().flatten())
-        flat = torch.cat(grads)
-        if self.flat_indices is not None:
-            flat = flat[self.flat_indices.to(device)]
-        return flat
+        def _forward_single(p, bfr, x, t):
+            return functional_call(self.model, (p, bfr), (x.unsqueeze(0), t.unsqueeze(0))).squeeze(0)
 
-    def _flare_trajectory(self, device):
-        """Run one full reverse trajectory; return (x0, epi_trace)."""
-        T = self.diffusion.timesteps
-        x_t = torch.randn(1, self.d, device=device)
-        epi_trace = 0.0
+        jacobian_fn = vmap(jacrev(_forward_single, argnums=0), in_dims=(None, None, 0, 0))
 
-        for ti in range(T - 1, -1, -1):
-            t_batch = torch.tensor([ti], device=device)
+        out_samples = []
+        out_scores = []
 
-            # Enable grad on selected params only
-            for p in self.grad_params:
-                p.requires_grad_(True)
-            self.model.zero_grad()
+        self.model.eval()
+        for start in tqdm(range(0, n_samples, batch_size), desc="FLARE scoring", leave=False):
+            current_bs = min(batch_size, n_samples - start)
+            x_t = torch.randn((current_bs,) + sample_shape, device=device)
+            epistemic_trace = torch.zeros(current_bs, dtype=torch.float64, device=device)
 
-            out = self.model(x_t.detach(), t_batch)  # (1, d)
-            eps_t = out.detach()
+            for ti in range(self.diffusion.timesteps - 1, -1, -1):
+                t = torch.full((current_bs,), ti, dtype=torch.long, device=device)
 
-            # Accumulate squared Jacobian contribution: sum_k (d out_k / d theta_I)^2 * sigma_I
-            g_sq = torch.zeros(len(self.sigma), device=device)
-            for k in range(self.d):
-                if k > 0:
-                    self.model.zero_grad()
-                out[0, k].backward(retain_graph=(k < self.d - 1))
-                g = self._flat_grad(device)
-                g_sq = g_sq + g.pow(2)
+                with torch.no_grad():
+                    eps_pred = self.model(x_t, t)
 
-            for p in self.grad_params:
-                p.requires_grad_(False)
+                do_accumulate = (tail_steps == 0) or (ti < tail_steps)
+                if do_accumulate:
+                    with torch.enable_grad():
+                        jac_pytree = jacobian_fn(params, buffers, x_t, t)
+                    jac = self._flatten_jacobian(jac_pytree)[:, :, sub_idx].detach().to(torch.float64)
+                    jac = torch.nan_to_num(jac, nan=0.0, posinf=0.0, neginf=0.0)
 
-            a_t = self._a[ti].item()
-            b_t = self._b[ti].item()
-            delta = (self.sigma * g_sq.detach()).sum().item()
-            epi_trace = a_t ** 2 * epi_trace + b_t ** 2 * delta
+                    delta_t = torch.einsum("bdm,mn,bdn->b", jac, sigma_sub, jac)
+                    delta_t = torch.nan_to_num(
+                        delta_t,
+                        nan=0.0,
+                        posinf=self.delta_clip_max,
+                        neginf=0.0,
+                    )
+                    delta_t = torch.clamp(delta_t, min=0.0, max=self.delta_clip_max)
+                    epistemic_trace = (a[ti] ** 2) * epistemic_trace + (b[ti] ** 2) * delta_t
+                    epistemic_trace = torch.nan_to_num(
+                        epistemic_trace,
+                        nan=0.0,
+                        posinf=self.score_clip_max,
+                        neginf=0.0,
+                    )
+                    epistemic_trace = torch.clamp(epistemic_trace, min=0.0, max=self.score_clip_max)
 
-            with torch.no_grad():
-                mean = a_t * x_t - b_t * eps_t
-                if ti > 0:
-                    noise_std = self._betas[ti].sqrt().item()
-                    x_t = mean + noise_std * torch.randn_like(x_t)
-                else:
-                    x_t = mean
+                # Deterministic reverse update (FLARE Algorithm 1, x-hat recursion).
+                x_t = a[ti] * (x_t - eps_coef[ti] * eps_pred)
 
-        return x_t.squeeze(0), epi_trace
+            out_samples.append(x_t.detach().cpu().numpy())
+            out_scores.append(epistemic_trace.detach().cpu().numpy())
+
+        return np.concatenate(out_samples, axis=0), np.concatenate(out_scores, axis=0)
 
 
 def generate_flare_scores(
@@ -221,50 +298,67 @@ def generate_flare_scores(
     trained_models_dir,
     sel_generation,
     real_data_path,
-    subset="last_layer",
-    curvature="ef",
-    m=1000,
-    prior_precision=1e-2,
+    subset="random",
+    m=512,
+    prior_precision=1e-4,
     last_layer_name="out_fc",
     seed=42,
-    max_posterior_std=1.0,
-    std_reference_subnetwork_size=1000,
     n_batches=64,
-    batch_size=2048,
+    batch_size=512,
+    score_batch_size=128,
+    tail_steps=0,
+    max_posterior_std=1.0,
+    delta_clip_max=1e12,
+    score_clip_max=1e20,
+    **_,
 ):
-    """Top-level function: fit FLARE posterior and generate scored samples.
+    """Fit FLARE and persist scored samples.
 
-    Saves two files to flare_samples_cache_dir:
-        flare_samples.npy   — shape (n_score_samples, 2)
-        flare_scores.npy    — shape (n_score_samples,)
+    Extra keyword args are ignored so this remains compatible with older config files.
     """
-    import os
-    from pathlib import Path
-
-    base_model = load_base_model(trained_models_dir=trained_models_dir, sel_generation=sel_generation, device=device)
-
+    base_model = load_base_model(
+        trained_models_dir=trained_models_dir,
+        sel_generation=sel_generation,
+        device=device,
+    )
+    diffusion = get_diffusion()
     real_data = np.load(real_data_path)
 
-    flare = FlareLaplace(
+    flare = FLAREEstimator(
         model=base_model,
-        diffusion=get_diffusion(),
+        diffusion=diffusion,
         subset=subset,
-        curvature=curvature,
         m=m,
-        prior_precision=prior_precision,
-        last_layer_name=last_layer_name,
+        damping=prior_precision,
         seed=seed,
+        last_layer_name=last_layer_name,
         max_posterior_std=max_posterior_std,
-        std_reference_subnetwork_size=std_reference_subnetwork_size,
+        delta_clip_max=delta_clip_max,
+        score_clip_max=score_clip_max,
     )
     flare.fit(real_data=real_data, device=device, n_batches=n_batches, batch_size=batch_size)
 
-    print(f"Generating {n_score_samples} FLARE-scored samples...")
-    samples, scores = flare.score(n_score_samples, device)
+    if real_data.ndim == 1:
+        sample_shape = (1,)
+    else:
+        sample_shape = (int(real_data.shape[1]),)
+
+    samples, scores = flare.sample_and_score(
+        n_samples=n_score_samples,
+        sample_shape=sample_shape,
+        device=device,
+        batch_size=score_batch_size,
+        tail_steps=tail_steps,
+    )
 
     cache_dir = Path(flare_samples_cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     np.save(cache_dir / "flare_samples.npy", samples)
     np.save(cache_dir / "flare_scores.npy", scores)
-    print(f"Saved FLARE outputs to {cache_dir}")
+    finite_frac = float(np.isfinite(scores).mean())
+    print(
+        f"Saved FLARE outputs to {cache_dir} | "
+        f"score min={np.min(scores):.4e}, max={np.max(scores):.4e}, finite_frac={finite_frac:.3f}"
+    )
+
     return samples, scores

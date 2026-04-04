@@ -7,7 +7,7 @@ from typing import Union, Tuple
 DEFAULT_DTYPE = torch.float32
 
 
-@torch.jit.script
+# @torch.jit.script
 def get_timestep_embedding(timesteps, embed_dim: int, dtype: torch.dtype = DEFAULT_DTYPE):
     """
     Adapted from fairseq/fairseq/modules/sinusoidal_positional_embedding.py

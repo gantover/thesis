@@ -190,4 +190,5 @@ def generate_flare_scores(obj):
         std_reference_subnetwork_size=lc.get('std_reference_subnetwork_size', 1000),
         n_batches=lc['laplace_batches'],
         batch_size=lc['laplace_batch_size'],
+        score_batch_size=obj['sampling'].get('batch_size', 512)
     )

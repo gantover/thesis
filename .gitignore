@@ -219,3 +219,4 @@ Output_*.out
 .claude
 old_.venv
 uv.lock
+.deleted/

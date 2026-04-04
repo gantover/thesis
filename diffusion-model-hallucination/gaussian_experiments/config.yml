@@ -7,7 +7,7 @@ laplace-ensemble:
   # Essential for accuracy: How much data you use to compute the Hessian matrix. 
   # Higher = better approximation, but takes longer and uses more memory. 64x2048 is a good robust default.
   laplace_batches: 64
-  laplace_batch_size: 2048
+  laplace_batch_size: 1024 # 2048 
 
   # --- CRITICAL REGULARIZATION PARAMETERS (ESSENTIAL FOR GOOD RESULTS) ---
   # Essential: Acts as the `lambda` in (H + \lambda I)^-1. High values (e.g., 10.0) 
@@ -30,7 +30,7 @@ laplace-ensemble:
   
   # Essential if subset='random': Number of parameters to capture. 3000 is a sweet spot. 
   # Too low = no uncertainty diversity. Too high = requires extreme prior_precision to remain stable.
-  m: 1000 
+  m: 250
 
   # --- Optional / Fine-Tuning ---
   # Optional: Automatically tightens the max_posterior_std if you drastically increase 'm'. 
@@ -40,7 +40,7 @@ laplace-ensemble:
   # Reproducibility & Downstream Tasks ---
   weight_sampling_seed: 42
   subset_seed: 42        
-  n_score_samples: 1000  # number of samples for FLARE scoring (downstream task)
+  n_score_samples: 8192 # 16384 # number of samples for FLARE scoring (downstream task)
   flare_samples_cache_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples/flare"
 
 lora-ensemble:
@@ -61,5 +61,5 @@ deep-ensemble:
 
 sampling:
   num_samples: 100000
-  batch_size: 10000
+  batch_size: 256
   samples_cache_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples"
