@@ -109,28 +109,6 @@ def _get_diffusion_target(diffusion, x_0, x_t, noise, t):
         return x_0
     return diffusion.q_posterior_mean_var(x_0=x_0, x_t=x_t, t=t)[0]
 
-def _cap_posterior_sigma_by_std(sigma, max_posterior_std):
-    if max_posterior_std is None:
-        return sigma, 0.0
-    if max_posterior_std <= 0:
-        raise ValueError(f"max_posterior_std must be > 0 or None, got {max_posterior_std}.")
-    std = sigma.sqrt()
-    clipped = std > max_posterior_std
-    clipped_frac = clipped.float().mean().item()
-    if clipped.any():
-        std = std.clamp(max=max_posterior_std)
-    return std.square(), clipped_frac
-
-def _effective_max_std_for_subnetwork(max_posterior_std, m_eff, std_reference_subnetwork_size):
-    if max_posterior_std is None:
-        return None
-    if std_reference_subnetwork_size is None:
-        return max_posterior_std
-    if std_reference_subnetwork_size <= 0:
-        raise ValueError(f"std_reference_subnetwork_size must be > 0 or None, got {std_reference_subnetwork_size}.")
-    scale = min(1.0, math.sqrt(float(std_reference_subnetwork_size) / float(m_eff)))
-    return max_posterior_std * scale
-
 def get_subnetwork_indices(model, subset, m, subset_seed, last_layer_name):
     total_params = sum(p.numel() for p in model.parameters())
     if subset == "last_layer":
@@ -169,9 +147,11 @@ def get_subnetwork_indices(model, subset, m, subset_seed, last_layer_name):
     else:
         raise ValueError(f"Unknown subset mode: {subset}")
 
-def compute_diagonal_ggn(adapter, diffusion, real_data, curvature, flat_indices, n_batches, batch_size, prior_precision, device):
+def compute_hessian_approx(adapter, diffusion, real_data, curvature, flat_indices, n_batches, batch_size, prior_precision, device, approximation="diagonal"):
     if curvature not in {"ef", "ggn"}:
         raise ValueError(f"Unsupported curvature '{curvature}'. Use 'ef' or 'ggn'.")
+    if approximation not in {"diagonal", "full", "kfac"}:
+        raise ValueError(f"Unsupported approximation '{approximation}'. Use 'diagonal', 'full', or 'kfac'.")
     flat_indices = flat_indices.to(device=device, dtype=torch.long)
     for p in adapter.parameters():
         p.requires_grad_(True)
@@ -181,20 +161,126 @@ def compute_diagonal_ggn(adapter, diffusion, real_data, curvature, flat_indices,
     buffers_dict = dict(adapter.named_buffers())
     d = real_data.shape[-1]
     m = len(flat_indices)
-    H_diag = torch.zeros(m, device=device)
+
+    if approximation in {"full", "kfac"}:
+        H = torch.zeros((m, m), device=device)
+    else:
+        H_diag = torch.zeros(m, device=device)
+
+    if approximation == "kfac":
+        target_modules = []
+        for name, mod in adapter.named_modules():
+            if hasattr(mod, "weight") and hasattr(mod, "in_features") and hasattr(mod, "out_features"):
+                # Make sure we only grab the one that matches our selected subset/last_layer_name exactly
+                # Here we assume the target is adapter.decoder.<last_layer_name>
+                target_modules.append((name, mod))
+        
+        if not target_modules:
+            raise ValueError("KFAC failed to find linear module.")
+            
+        target_module = None
+        for name, mod in target_modules:
+            # Match strictly against the expected subset layer
+            if hasattr(adapter, "decoder") and hasattr(adapter.decoder, "out_fc"):
+                if mod is getattr(adapter.decoder, "out_fc"):
+                    target_module = mod
+                    break
+        
+        if target_module is None:
+            target_module = target_modules[-1][1]  # Fallback
+        
+        d_in = target_module.in_features
+        d_out = target_module.out_features
+        in_feat_sz = d_in + (1 if target_module.bias is not None else 0)
+        
+        if in_feat_sz * d_out != m:
+            raise ValueError(f"KFAC size mismatch: module has {in_feat_sz * d_out} params but m={m}")
+            
+        A_sum = torch.zeros((in_feat_sz, in_feat_sz), device=device)
+        B_sum = torch.zeros((d_out, d_out), device=device)
+        
+        a_cache = []
+        g_cache = []
+        def fw_hook(mod, x_in, y_out):
+            a = x_in[0].detach()
+            if mod.bias is not None:
+                a = torch.cat([a, torch.ones(a.shape[0], 1, device=a.device)], dim=1)
+            a_cache.append(a)
+        def bw_hook(mod, g_in, g_out):
+            g_cache.append(g_out[0].detach())
+            
+        h_fw = target_module.register_forward_hook(fw_hook)
+        h_bw = target_module.register_full_backward_hook(bw_hook)
+        n_total = 0
+
     hessian_factor = 0.5
     for x_0 in loader:
         x_0 = x_0.to(device)
         t = torch.randint(0, diffusion.timesteps, (x_0.shape[0],), device=device)
         noise = torch.randn_like(x_0)
         x_t = diffusion.q_sample(x_0, t, noise=noise)
-        if curvature == "ggn":
-            Gs = _ggn_diag_batch(adapter, x_t, t, flat_indices, d, params_dict, buffers_dict)
+        
+        if approximation == "kfac":
+            a_cache.clear()
+            g_cache.clear()
+            adapter.zero_grad()
+            y_pred = adapter(x_t, t)
+            
+            if curvature == "ggn":
+                a = a_cache[0].clone()
+                # GGN requires taking the gradient of each output dimension separately
+                # wrt to the pre-activation
+                for k in range(y_pred.shape[1]):
+                    adapter.zero_grad()
+                    g_cache.clear()
+                    # The sum over batch matches vmap logic handling independent elements
+                    # Multiplying by sqrt(2) matches PyTorch's MSE loss reduction="sum" 
+                    # 2nd derivative being 2 on the diagonal. => g * sqrt(2) -> g^2 * 2
+                    (math.sqrt(2.0) * y_pred[:, k].sum()).backward(retain_graph=True)
+                    g = g_cache[-1]
+                    B_sum += torch.einsum("bi,bj->ij", g, g)
+                A_sum += torch.einsum("bi,bj->ij", a, a)
+            else:
+                y = _get_diffusion_target(diffusion=diffusion, x_0=x_0, x_t=x_t, noise=noise, t=t)
+                loss = torch.nn.functional.mse_loss(y_pred, y, reduction="sum")
+                loss.backward()
+                a = a_cache[0]
+                g = g_cache[-1]
+                A_sum += torch.einsum("bi,bj->ij", a, a)
+                B_sum += torch.einsum("bi,bj->ij", g, g)
+            
+            n_total += x_0.shape[0]
         else:
-            y = _get_diffusion_target(diffusion=diffusion, x_0=x_0, x_t=x_t, noise=noise, t=t)
-            Gs = _ef_diag_batch(adapter, x_t, y, t, flat_indices, params_dict, buffers_dict)
-        H_diag += hessian_factor * torch.einsum("bp,bp->p", Gs.detach(), Gs.detach())
-    sigma = 1.0 / (H_diag + prior_precision)
+            if curvature == "ggn":
+                Gs = _ggn_diag_batch(adapter, x_t, t, flat_indices, d, params_dict, buffers_dict)
+            else:
+                y = _get_diffusion_target(diffusion=diffusion, x_0=x_0, x_t=x_t, noise=noise, t=t)
+                Gs = _ef_diag_batch(adapter, x_t, y, t, flat_indices, params_dict, buffers_dict)
+            
+            if approximation == "full":
+                H += hessian_factor * torch.einsum("bp,bq->pq", Gs.detach(), Gs.detach())
+            else:
+                H_diag += hessian_factor * torch.einsum("bp,bp->p", Gs.detach(), Gs.detach())
+
+    if approximation == "kfac":
+        h_fw.remove()
+        h_bw.remove()
+        H_kfac = hessian_factor * torch.kron(B_sum, A_sum) / max(n_total, 1)
+        
+        idx_kfac_to_pt = torch.zeros(m, dtype=torch.long, device=device)
+        for o in range(d_out):
+            for c in range(d_in):
+                idx_kfac_to_pt[o * in_feat_sz + c] = o * d_in + c
+            if target_module.bias is not None:
+                idx_kfac_to_pt[o * in_feat_sz + d_in] = d_out * d_in + o
+                
+        H[idx_kfac_to_pt.unsqueeze(1), idx_kfac_to_pt.unsqueeze(0)] = H_kfac
+
+    if approximation in {"full", "kfac"}:
+        sigma = torch.linalg.inv(H + prior_precision * torch.eye(m, device=device))
+    else:
+        sigma = 1.0 / (H_diag + prior_precision)
+
     return sigma
 
 def sample_subset_model(base_model, sampled_vector, flat_indices, device):
@@ -208,7 +294,7 @@ def sample_subset_model(base_model, sampled_vector, flat_indices, device):
 
 def build_laplace_ensemble(
     trained_models_dir,
-    llla_sampled_models_dir,
+    la_sampled_models_dir,
     diffusion,
     device,
     sel_generation=0,
@@ -221,12 +307,11 @@ def build_laplace_ensemble(
     last_layer_name="out_fc",
     subset="last_layer",
     curvature="ef",
+    approximation="diagonal",
     m=1000,
     subset_seed=42,
-    max_posterior_std=1.0,
-    std_reference_subnetwork_size=1000,
 ):
-    print(f"Building Laplace ensemble: subset={subset}, curvature={curvature}")
+    print(f"Building Laplace ensemble: subset={subset}, curvature={curvature}, approximation={approximation}")
 
     chkpt_dir = Path(trained_models_dir.format(seed=0))
     base_model = load_base_model(trained_models_dir=trained_models_dir, sel_generation=sel_generation, device=device)
@@ -241,15 +326,15 @@ def build_laplace_ensemble(
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(weight_sampling_seed)
 
-    llla_chkpt_dir = Path(llla_sampled_models_dir)
-    llla_chkpt_dir.mkdir(parents=True, exist_ok=True)
+    la_chkpt_dir = Path(la_sampled_models_dir)
+    la_chkpt_dir.mkdir(parents=True, exist_ok=True)
 
     adapter = LaplaceDecoderAdapter(copy.deepcopy(base_model)).to(device)
 
     flat_indices = get_subnetwork_indices(base_model, subset, m, subset_seed, last_layer_name).to(device)
     m_eff = len(flat_indices)
 
-    sigma = compute_diagonal_ggn(
+    sigma = compute_hessian_approx(
         adapter=adapter,
         diffusion=diffusion,
         real_data=real_data,
@@ -259,29 +344,42 @@ def build_laplace_ensemble(
         batch_size=laplace_batch_size,
         prior_precision=prior_precision,
         device=device,
+        approximation=approximation,
     )
-    sigma = torch.clamp(sigma, min=1e-12) * (sample_temperature ** 2)
 
-    eff_max_std = _effective_max_std_for_subnetwork(
-        max_posterior_std=max_posterior_std,
-        m_eff=m_eff,
-        std_reference_subnetwork_size=std_reference_subnetwork_size,
-    )
-    sigma, clipped_frac = _cap_posterior_sigma_by_std(
-        sigma=sigma,
-        max_posterior_std=eff_max_std,
-    )
-    print(
-        f"{subset.capitalize()} subset posterior sigma stats: "
-        f"min={sigma.min().item():.3e}, median={sigma.median().item():.3e}, max={sigma.max().item():.3e}, "
-        f"std_clip_frac={clipped_frac:.3f}, effective_max_std={eff_max_std}"
-    )
+    np.save(la_chkpt_dir / "pre_sigma.npy", sigma.cpu().numpy())
     
     mean_subset = parameters_to_vector(base_model.parameters()).detach()[flat_indices]
-    eps = torch.randn(M, m_eff, device=device)
-    sampled_layers = mean_subset.unsqueeze(0) + eps * sigma.sqrt().unsqueeze(0)
+
+    if approximation in {"full", "kfac"}:
+        sigma = sigma * (sample_temperature ** 2)
+        
+        # Ensure exact symmetry before Cholesky/MultivariateNormal
+        sigma = (sigma + sigma.transpose(-2, -1)) / 2.0
+        
+        print(
+            f"{subset.capitalize()} subset posterior sigma stats ({approximation}): "
+            f"min={torch.diag(sigma).min().item():.3e}, median={torch.diag(sigma).median().item():.3e}, max={torch.diag(sigma).max().item():.3e}"
+        )
+        
+        dist = torch.distributions.MultivariateNormal(mean_subset, covariance_matrix=sigma + 1e-6 * torch.eye(m_eff, device=device))
+        sampled_layers = dist.rsample((M,))
+    else:
+        sigma = torch.clamp(sigma, min=1e-12) * (sample_temperature ** 2)
+        print(
+            f"{subset.capitalize()} subset posterior sigma stats ({approximation}): "
+            f"min={sigma.min().item():.3e}, median={sigma.median().item():.3e}, max={sigma.max().item():.3e}"
+        )
+        
+        eps = torch.randn(M, m_eff, device=device)
+        sampled_layers = mean_subset.unsqueeze(0) + eps * sigma.sqrt().unsqueeze(0)
+
+    np.save(la_chkpt_dir / "post_sigma.npy", sigma.cpu().numpy())
 
     models = [base_model]
+    m_str = f"_m{m}" if subset == "random" else ""
+    param_str = f"prior{prior_precision}_approx{approximation}_curv{curvature}_subset{subset}{m_str}"
+    
     for i in range(M):
         sampled_model = sample_subset_model(
             base_model=base_model,
@@ -289,7 +387,7 @@ def build_laplace_ensemble(
             flat_indices=flat_indices,
             device=device,
         )
-        model_cache_path = llla_chkpt_dir / f"llla_sample_{i}.pt"
+        model_cache_path = la_chkpt_dir / f"la_sample_{i}_{param_str}.pt"
         torch.save(sampled_model.state_dict(), model_cache_path)
         print(f"Saved sampled model: {model_cache_path}")
         models.append(sampled_model)

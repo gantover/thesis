@@ -11,11 +11,10 @@ from .ensemble_weights import (
 
 from .ensemble_sampling import (
     gen_deep_ensemble_samples,
-    gen_llla_ensemble_samples,
+    gen_la_ensemble_samples,
     gen_lora_ensemble_samples,
 )
 
-from .flare import generate_flare_scores as _generate_flare_scores
 from .lora_ensemble import build_lora_ensemble
 from .model_loading import load_base_model
 import numpy as np
@@ -40,13 +39,13 @@ def cli(ctx, config):
 
 @cli.command()
 @click.pass_obj
-def generate_llla_models(obj):
+def generate_la_models(obj):
     lc = obj['laplace-ensemble']
     dc = obj['deep-ensemble']
 
     build_laplace_ensemble(
         trained_models_dir=dc['trained_models_dir'],
-        llla_sampled_models_dir=lc['llla_sampled_models_dir'],
+        la_sampled_models_dir=lc['la_sampled_models_dir'],
         diffusion=get_diffusion(),
         device=obj['device'],
         sel_generation=dc['sel_generation'],
@@ -60,23 +59,28 @@ def generate_llla_models(obj):
         subset=lc.get('subset', 'last_layer'),
         m=lc.get('m', 1000),
         subset_seed=lc.get('subset_seed', 42),
-        max_posterior_std=lc.get('max_posterior_std', 1.0),
-        std_reference_subnetwork_size=lc.get('std_reference_subnetwork_size', 1000),
+        curvature=lc.get('curvature', 'ef'),
+        approximation=lc.get('approximation', 'diagonal'),
     )
 
 @cli.command()
 @click.pass_obj
-def generate_llla_samples(obj):
+def generate_la_samples(obj):
     sampling_config = obj['sampling']
-    gen_llla_ensemble_samples(
+    gen_la_ensemble_samples(
         num_samples=sampling_config['num_samples'],
         batch_size=sampling_config['batch_size'],
         device=obj['device'],
         samples_cache_dir=sampling_config['samples_cache_dir'],
-        llla_sampled_models_dir=obj['laplace-ensemble']['llla_sampled_models_dir'],
+        la_sampled_models_dir=obj['laplace-ensemble']['la_sampled_models_dir'],
         trained_models_dir=obj['deep-ensemble']['trained_models_dir'],
         sel_generation=obj['deep-ensemble']['sel_generation'],
         M=obj['deep-ensemble']['M'],
+        prior_precision=obj['laplace-ensemble'].get('prior_precision', 1e-2),
+        approximation=obj['laplace-ensemble'].get('approximation', 'diagonal'),
+        curvature=obj['laplace-ensemble'].get('curvature', 'ef'),
+        subset=obj['laplace-ensemble'].get('subset', 'last_layer'),
+        m=obj['laplace-ensemble'].get('m', 1000),
     )
 
 @cli.command()
@@ -124,7 +128,7 @@ def build_lora(obj):
     )
 
 @cli.command('sample')
-@click.option('--ensemble-type', type=click.Choice(['deep', 'llla', 'lora']), required=True)
+@click.option('--ensemble-type', type=click.Choice(['deep', 'la', 'lora']), required=True)
 @click.pass_obj
 def sample(obj, ensemble_type):
     sampling_config = obj['sampling']
@@ -138,16 +142,21 @@ def sample(obj, ensemble_type):
             sel_generation=obj['deep-ensemble']['sel_generation'],
             M=obj['deep-ensemble']['M'],
         )
-    elif ensemble_type == 'llla':
-        gen_llla_ensemble_samples(
+    elif ensemble_type == 'la':
+        gen_la_ensemble_samples(
             num_samples=sampling_config['num_samples'],
             batch_size=sampling_config['batch_size'],
             device=obj['device'],
             samples_cache_dir=sampling_config['samples_cache_dir'],
-            llla_sampled_models_dir=obj['laplace-ensemble']['llla_sampled_models_dir'],
+            la_sampled_models_dir=obj['laplace-ensemble']['la_sampled_models_dir'],
             trained_models_dir=obj['deep-ensemble']['trained_models_dir'],
             sel_generation=obj['deep-ensemble']['sel_generation'],
             M=obj['deep-ensemble']['M'],
+            prior_precision=obj['laplace-ensemble'].get('prior_precision', 1e-2),
+            approximation=obj['laplace-ensemble'].get('approximation', 'diagonal'),
+            curvature=obj['laplace-ensemble'].get('curvature', 'ef'),
+            subset=obj['laplace-ensemble'].get('subset', 'last_layer'),
+            m=obj['laplace-ensemble'].get('m', 1000),
         )
     elif ensemble_type == 'lora':
         lc = obj['lora-ensemble']
@@ -163,32 +172,3 @@ def sample(obj, ensemble_type):
             r=lc['r'],
             alpha=lc['alpha'],
         )
-
-
-@cli.command()
-@click.pass_obj
-def generate_flare_scores(obj):
-    lc = obj['laplace-ensemble']
-    dc = obj['deep-ensemble']
-
-    chkpt_dir = Path(dc['trained_models_dir'].format(seed=0))
-    real_data_path = chkpt_dir / "real_dataset.npy"
-
-    _generate_flare_scores(
-        n_score_samples=lc['n_score_samples'],
-        device=obj['device'],
-        flare_samples_cache_dir=lc['flare_samples_cache_dir'],
-        trained_models_dir=dc['trained_models_dir'],
-        sel_generation=dc['sel_generation'],
-        real_data_path=str(real_data_path),
-        subset=lc.get('subset', 'last_layer'),
-        m=lc.get('m', 1000),
-        prior_precision=lc.get('prior_precision', 1e-2),
-        last_layer_name=lc.get('last_layer_name', 'out_fc'),
-        seed=lc.get('subset_seed', 42),
-        max_posterior_std=lc.get('max_posterior_std', 1.0),
-        std_reference_subnetwork_size=lc.get('std_reference_subnetwork_size', 1000),
-        n_batches=lc['laplace_batches'],
-        batch_size=lc['laplace_batch_size'],
-        score_batch_size=obj['sampling'].get('batch_size', 512)
-    )

@@ -1,53 +1,35 @@
 laplace-ensemble:
   # --- File Paths & Basic Model Details ---
-  llla_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/llla_sampled"
+  la_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/la_sampled"
   last_layer_name: "out_fc" # Only used if subset='last_layer'
   
-  # --- Compute / Resource Parameters ---
   # Essential for accuracy: How much data you use to compute the Hessian matrix. 
   # Higher = better approximation, but takes longer and uses more memory. 64x2048 is a good robust default.
   laplace_batches: 64
-  laplace_batch_size: 1024 # 2048 
+  laplace_batch_size: 2048
 
-  # --- CRITICAL REGULARIZATION PARAMETERS (ESSENTIAL FOR GOOD RESULTS) ---
+  # Regularization params
   # Essential: Acts as the `lambda` in (H + \lambda I)^-1. High values (e.g., 10.0) 
   # strictly prevent the model from collapsing to noise by regularizing flat directions in the loss landscape.
-  prior_precision: 400.0 
+  prior_precision: 100.0 
+  # Simplification: With proper prior_precision, you can just leave this at 1.0 (no effect).
+  sample_temperature: 1.0 # Higher values (e.g., 2.0) increase the diversity of sampled models but can lead to worse performance if set too high. 
   
-  # Essential: Hard cap on how much a single parameter can be perturbed. Needs to be low 
-  # for neural networks (e.g., 0.05 - 0.1) so weights don't explode.
-  max_posterior_std: null 
-  
-  # Simplification: With proper prior_precision & max_posterior_std, you can just leave this at 1.0 (no effect).
-  sample_temperature: 1.0 
-
-  # --- Algorithmic Choices (ESSENTIAL) ---
-  # Essential: 'ggn' (Generalized Gauss-Newton) is mathematically the most robust and matches your paper's derivation.
-  curvature: "ggn"
-  
+  approximation: "kfac" # 'full' (full Hessian) is the most accurate but computationally expensive. 'diagonal' is a scalable approximation.
+  curvature: "ggn" # 'ggn' (Generalized Gauss-Newton) or 'ef' (Empirical Fisher).
   # Essential: 'last_layer' is safer but less expressive. 'random' is more expressive but requires tuning the regularizers above.
-  subset: "random"
+  subset: "last_layer" # 'last_layer' or 'random'
+  m: 16384 # if subset='random', how many parameters to capture. 3000 is a sweet spot. Too low = no uncertainty diversity. Too high = requires extreme prior_precision to remain stable.
   
-  # Essential if subset='random': Number of parameters to capture. 3000 is a sweet spot. 
-  # Too low = no uncertainty diversity. Too high = requires extreme prior_precision to remain stable.
-  m: 250
-
-  # --- Optional / Fine-Tuning ---
-  # Optional: Automatically tightens the max_posterior_std if you drastically increase 'm'. 
-  # You can ignore modifying this as long as you keep 'm' around 1000-5000.
-  std_reference_subnetwork_size: 1000 
-
   # Reproducibility & Downstream Tasks ---
   weight_sampling_seed: 42
   subset_seed: 42        
-  n_score_samples: 8192 # 16384 # number of samples for FLARE scoring (downstream task)
-  flare_samples_cache_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples/flare"
 
 lora-ensemble:
   lora_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/lora_sampled"
   M: 5
-  r: 16
-  alpha: 4.0
+  r: 4
+  alpha: 2.0 # 4.0
   epochs: 20 
   lr: 0.001
   batch_size: 2048
@@ -60,6 +42,6 @@ deep-ensemble:
   M: 5
 
 sampling:
-  num_samples: 100000
-  batch_size: 256
+  num_samples: 65536
+  batch_size: 8192
   samples_cache_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/samples"

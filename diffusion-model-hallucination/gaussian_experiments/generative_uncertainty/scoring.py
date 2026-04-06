@@ -99,6 +99,80 @@ def estimator(metric, real_data, generated_data, num_iterations=20, subsample_si
         "ci_upper": ci_upper
     }
 
+def uncertainty_alignment_aurc(reference_uncertainty, approx_uncertainty, rejection_rates=None):
+    """Compare how well an approximate uncertainty ranking matches a reference baseline."""
+    reference = np.asarray(reference_uncertainty, dtype=np.float64).reshape(-1)
+    approx = np.asarray(approx_uncertainty, dtype=np.float64).reshape(-1)
+
+    if reference.shape[0] != approx.shape[0]:
+        raise ValueError(
+            f"reference_uncertainty and approx_uncertainty must have the same length, got {reference.shape[0]} and {approx.shape[0]}."
+        )
+
+    finite_mask = np.isfinite(reference) & np.isfinite(approx)
+    if finite_mask.sum() < 2:
+        raise ValueError("Need at least two finite samples to compute uncertainty alignment AURC.")
+
+    reference = reference[finite_mask]
+    approx = approx[finite_mask]
+
+    if rejection_rates is None:
+        rejection_rates = np.linspace(0.0, 0.95, 96)
+    else:
+        rejection_rates = np.asarray(rejection_rates, dtype=np.float64).reshape(-1)
+
+    if np.any(rejection_rates < 0.0) or np.any(rejection_rates >= 1.0):
+        raise ValueError("rejection_rates must be in [0, 1).")
+
+    num_samples = reference.size
+    keep_counts = np.floor((1.0 - rejection_rates) * num_samples).astype(int)
+    keep_counts = np.clip(keep_counts, 1, num_samples)
+
+    def _curve_from_scores(scores):
+        sorted_reference = reference[np.argsort(scores)]
+        cumulative_reference = np.cumsum(sorted_reference)
+        risks = cumulative_reference[keep_counts - 1] / keep_counts
+        return {
+            "rejection_rates": rejection_rates,
+            "risks": risks,
+            "aurc": float(np.trapezoid(risks, rejection_rates)),
+        }
+
+    mean_reference = float(np.mean(reference))
+    random_risks = np.full_like(rejection_rates, mean_reference, dtype=np.float64)
+
+    ref_range = float(np.max(reference) - np.min(reference))
+    if ref_range > 0.0:
+        mae_normalized = float(np.mean(np.abs(approx - reference)) / ref_range)
+    else:
+        mae_normalized = 0.0
+
+    if np.std(reference) > 0 and np.std(approx) > 0:
+        pearson = float(np.corrcoef(reference, approx)[0, 1])
+        spearman = float(st.spearmanr(reference, approx).statistic)
+    else:
+        pearson = np.nan
+        spearman = np.nan
+
+    candidate = _curve_from_scores(approx)
+    oracle = _curve_from_scores(reference)
+    random_baseline = {
+        "rejection_rates": rejection_rates,
+        "risks": random_risks,
+        "aurc": float(np.trapezoid(random_risks, rejection_rates)),
+    }
+
+    return {
+        "candidate": candidate,
+        "oracle": oracle,
+        "random": random_baseline,
+        "metrics": {
+            "pearson_r": pearson,
+            "spearman_r": spearman,
+            "mae_normalized": mae_normalized,
+        },
+    }
+
 def extract_true_gmm_params(scale=2.0, noise=0.05):
     """
     Extracts the EXACT mathematically true scaled means and variance

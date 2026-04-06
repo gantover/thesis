@@ -25,12 +25,14 @@ def load_deep_ensemble_models(trained_models_dir, sel_generation, M, device):
         models.append(load_model_from_checkpoint(chkpt_path=chkpt_path, device=device))
     return models
 
-def load_llla_sampled_models(llla_sampled_models_dir, M, device):
+def load_la_sampled_models(la_sampled_models_dir, M, device, prior_precision, approximation, curvature, subset, m):
     models = []
     for model_id in range(M):
-        chkpt_path = Path(llla_sampled_models_dir) / f"llla_sample_{model_id}.pt"
+        m_str = f"_m{m}" if subset == "random" else ""
+        param_str = f"prior{prior_precision}_approx{approximation}_curv{curvature}_subset{subset}{m_str}"
+        chkpt_path = Path(la_sampled_models_dir) / f"la_sample_{model_id}_{param_str}.pt"
         if not chkpt_path.exists():
-            raise FileNotFoundError(f"Missing LLLA sampled model checkpoint: {chkpt_path}")
+            raise FileNotFoundError(f"Missing LA sampled model checkpoint: {chkpt_path}")
         models.append(load_model_from_checkpoint(chkpt_path=chkpt_path, device=device))
     return models
 
