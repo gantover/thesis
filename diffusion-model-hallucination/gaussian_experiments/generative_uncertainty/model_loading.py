@@ -1,6 +1,7 @@
 import torch
 from pathlib import Path
 from ddpm_torch.toy import Decoder
+from .utils import get_param_str
 
 def load_model_from_checkpoint(chkpt_path, device):
     model = Decoder(in_features=2, mid_features=128, num_temporal_layers=3)
@@ -25,11 +26,12 @@ def load_deep_ensemble_models(trained_models_dir, sel_generation, M, device):
         models.append(load_model_from_checkpoint(chkpt_path=chkpt_path, device=device))
     return models
 
-def load_la_sampled_models(la_sampled_models_dir, M, device, prior_precision, approximation, curvature, subset, m):
+def load_la_sampled_models(la_sampled_models_dir, M, device, prior_precision, approximation, curvature, subset, m, temperature):
     models = []
     for model_id in range(M):
-        m_str = f"_m{m}" if subset == "random" else ""
-        param_str = f"prior{prior_precision}_approx{approximation}_curv{curvature}_subset{subset}{m_str}"
+        # m_str = f"_m{m}" if subset == "random" else ""
+        # param_str = f"prior{prior_precision}_approx{approximation}_curv{curvature}_subset{subset}{m_str}"
+        param_str = get_param_str(prior_precision, approximation, curvature, subset, m=m, temperature=temperature)
         chkpt_path = Path(la_sampled_models_dir) / f"la_sample_{model_id}_{param_str}.pt"
         if not chkpt_path.exists():
             raise FileNotFoundError(f"Missing LA sampled model checkpoint: {chkpt_path}")

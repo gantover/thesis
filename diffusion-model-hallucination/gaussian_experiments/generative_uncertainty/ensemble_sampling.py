@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 from pathlib import Path
+from .utils import get_param_str
 from .ensemble_weights import get_diffusion
 from .model_loading import (
     load_deep_ensemble_models,
@@ -16,13 +17,12 @@ def gen_deep_ensemble_samples(num_samples, batch_size, device, samples_cache_dir
     samples_cache_path = Path(samples_cache_dir) / "deep_ensemble_samples.npy"
     sample_ensemble_samples(ensemble_models=models, num_samples=num_samples, batch_size=batch_size, device=device, samples_cache_path=samples_cache_path)
 
-def gen_la_ensemble_samples(num_samples, batch_size, device, samples_cache_dir, la_sampled_models_dir, trained_models_dir, sel_generation, M, prior_precision, approximation, curvature, subset, m):
+def gen_la_ensemble_samples(num_samples, batch_size, device, samples_cache_dir, la_sampled_models_dir, trained_models_dir, sel_generation, M, prior_precision, approximation, curvature, subset, m, sample_temperature):
     base_model = load_base_model(trained_models_dir=trained_models_dir, sel_generation=sel_generation, device=device)
-    la_models = load_la_sampled_models(la_sampled_models_dir=la_sampled_models_dir, M=M, device=device, prior_precision=prior_precision, approximation=approximation, curvature=curvature, subset=subset, m=m)
+    la_models = load_la_sampled_models(la_sampled_models_dir=la_sampled_models_dir, M=M, device=device, prior_precision=prior_precision, approximation=approximation, curvature=curvature, subset=subset, m=m, temperature=sample_temperature)
     models = [base_model] + la_models
     Path(samples_cache_dir).mkdir(parents=True, exist_ok=True)
-    m_str = f"_m{m}" if subset == "random" else ""
-    param_str = f"prior{prior_precision}_approx{approximation}_curv{curvature}_subset{subset}{m_str}"
+    param_str = get_param_str(prior_precision, approximation, curvature, subset, m=m, temperature=sample_temperature)
     samples_cache_path = Path(samples_cache_dir) / f"la_ensemble_samples_{param_str}.npy"
     sample_ensemble_samples(ensemble_models=models, num_samples=num_samples, batch_size=batch_size, device=device, samples_cache_path=samples_cache_path)
 

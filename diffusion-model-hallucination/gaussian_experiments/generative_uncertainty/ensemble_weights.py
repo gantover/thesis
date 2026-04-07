@@ -9,6 +9,7 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 
 from ddpm_torch.toy import Decoder, GaussianDiffusion, get_beta_schedule
 from .model_loading import load_base_model
+from .utils import get_param_str
 
 
 class LaplaceCalibrationDataset(torch.utils.data.Dataset):
@@ -72,7 +73,7 @@ def _ef_diag_batch(adapter, x_t, y, t, flat_indices, params_dict, buffers_dict):
     def loss_single(x, y, t, params_dict, buffers_dict):
         x, y, t = x.unsqueeze(0), y.unsqueeze(0), t.unsqueeze(0)
         output = torch.func.functional_call(adapter, (params_dict, buffers_dict), (x, t))
-        loss = torch.nn.functional.mse_loss(output, y, reduction="sum")
+        loss = 0.5 * torch.nn.functional.mse_loss(output, y, reduction="sum")
         return loss
 
     grad_fn = torch.func.grad(loss_single, argnums=3)
@@ -150,8 +151,8 @@ def get_subnetwork_indices(model, subset, m, subset_seed, last_layer_name):
 def compute_hessian_approx(adapter, diffusion, real_data, curvature, flat_indices, n_batches, batch_size, prior_precision, device, approximation="diagonal"):
     if curvature not in {"ef", "ggn"}:
         raise ValueError(f"Unsupported curvature '{curvature}'. Use 'ef' or 'ggn'.")
-    if approximation not in {"diagonal", "full", "kfac"}:
-        raise ValueError(f"Unsupported approximation '{approximation}'. Use 'diagonal', 'full', or 'kfac'.")
+    if approximation not in {"diagonal", "full", "kfac", "icla"}:
+        raise ValueError(f"Unsupported approximation '{approximation}'. Use 'diagonal', 'full', 'kfac', or 'icla'.")
     flat_indices = flat_indices.to(device=device, dtype=torch.long)
     for p in adapter.parameters():
         p.requires_grad_(True)
@@ -164,7 +165,7 @@ def compute_hessian_approx(adapter, diffusion, real_data, curvature, flat_indice
 
     if approximation in {"full", "kfac"}:
         H = torch.zeros((m, m), device=device)
-    else:
+    elif approximation == "diagonal": # diagonal or icla
         H_diag = torch.zeros(m, device=device)
 
     if approximation == "kfac":
@@ -236,13 +237,13 @@ def compute_hessian_approx(adapter, diffusion, real_data, curvature, flat_indice
                     # The sum over batch matches vmap logic handling independent elements
                     # Multiplying by sqrt(2) matches PyTorch's MSE loss reduction="sum" 
                     # 2nd derivative being 2 on the diagonal. => g * sqrt(2) -> g^2 * 2
-                    (math.sqrt(2.0) * y_pred[:, k].sum()).backward(retain_graph=True)
+                    y_pred[:, k].sum().backward(retain_graph=True)
                     g = g_cache[-1]
                     B_sum += torch.einsum("bi,bj->ij", g, g)
                 A_sum += torch.einsum("bi,bj->ij", a, a)
             else:
                 y = _get_diffusion_target(diffusion=diffusion, x_0=x_0, x_t=x_t, noise=noise, t=t)
-                loss = torch.nn.functional.mse_loss(y_pred, y, reduction="sum")
+                loss = 0.5 * torch.nn.functional.mse_loss(y_pred, y, reduction="sum")
                 loss.backward()
                 a = a_cache[0]
                 g = g_cache[-1]
@@ -259,7 +260,7 @@ def compute_hessian_approx(adapter, diffusion, real_data, curvature, flat_indice
             
             if approximation == "full":
                 H += hessian_factor * torch.einsum("bp,bq->pq", Gs.detach(), Gs.detach())
-            else:
+            elif approximation == "diagonal":
                 H_diag += hessian_factor * torch.einsum("bp,bp->p", Gs.detach(), Gs.detach())
 
     if approximation == "kfac":
@@ -278,8 +279,20 @@ def compute_hessian_approx(adapter, diffusion, real_data, curvature, flat_indice
 
     if approximation in {"full", "kfac"}:
         sigma = torch.linalg.inv(H + prior_precision * torch.eye(m, device=device))
-    else:
+    if approximation == "diagonal":
         sigma = 1.0 / (H_diag + prior_precision)
+    if approximation == "icla":
+        # ICLA : Identity Curvature Laplace Approximation
+        sigma = 1.0 / (prior_precision * torch.ones(m, device=device))  # Start with identity approximation
+        # # ICLA: iterative correction of diagonal approximation with low-rank EF info
+        # # See "Iteratively Corrected Laplace Approximation" (ICLA) method in https://arxiv.org/abs/2211.13227
+        # sigma_diag = 1.0 / (H_diag + prior_precision)
+        # sigma_icla = sigma_diag.clone()
+        # n_icla_iters = 5
+        # for _ in range(n_icla_iters):
+        #     H_icla = hessian_factor * torch.einsum("bp,bq->pq", Gs.detach(), Gs.detach() * sigma_icla[flat_indices].unsqueeze(0))
+        #     sigma_icla = 1.0 / (H_diag + H_icla.diag() + prior_precision)
+        # sigma = sigma_icla
 
     return sigma
 
@@ -377,9 +390,8 @@ def build_laplace_ensemble(
     np.save(la_chkpt_dir / "post_sigma.npy", sigma.cpu().numpy())
 
     models = [base_model]
-    m_str = f"_m{m}" if subset == "random" else ""
-    param_str = f"prior{prior_precision}_approx{approximation}_curv{curvature}_subset{subset}{m_str}"
-    
+    param_str = get_param_str(prior_precision, approximation, curvature, subset, m=m, temperature=sample_temperature)
+
     for i in range(M):
         sampled_model = sample_subset_model(
             base_model=base_model,

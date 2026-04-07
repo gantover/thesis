@@ -65,26 +65,6 @@ def generate_la_models(obj):
 
 @cli.command()
 @click.pass_obj
-def generate_la_samples(obj):
-    sampling_config = obj['sampling']
-    gen_la_ensemble_samples(
-        num_samples=sampling_config['num_samples'],
-        batch_size=sampling_config['batch_size'],
-        device=obj['device'],
-        samples_cache_dir=sampling_config['samples_cache_dir'],
-        la_sampled_models_dir=obj['laplace-ensemble']['la_sampled_models_dir'],
-        trained_models_dir=obj['deep-ensemble']['trained_models_dir'],
-        sel_generation=obj['deep-ensemble']['sel_generation'],
-        M=obj['deep-ensemble']['M'],
-        prior_precision=obj['laplace-ensemble'].get('prior_precision', 1e-2),
-        approximation=obj['laplace-ensemble'].get('approximation', 'diagonal'),
-        curvature=obj['laplace-ensemble'].get('curvature', 'ef'),
-        subset=obj['laplace-ensemble'].get('subset', 'last_layer'),
-        m=obj['laplace-ensemble'].get('m', 1000),
-    )
-
-@cli.command()
-@click.pass_obj
 def generate_deep_ensemble_samples(obj):
     sampling_config = obj['sampling']
     gen_deep_ensemble_samples(
@@ -157,6 +137,7 @@ def sample(obj, ensemble_type):
             curvature=obj['laplace-ensemble'].get('curvature', 'ef'),
             subset=obj['laplace-ensemble'].get('subset', 'last_layer'),
             m=obj['laplace-ensemble'].get('m', 1000),
+            sample_temperature=obj['laplace-ensemble'].get('sample_temperature', 1.0),
         )
     elif ensemble_type == 'lora':
         lc = obj['lora-ensemble']
