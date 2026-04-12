@@ -182,7 +182,9 @@ def main(args, config):
         f_preprocess_la_input=_preprocess_la_adm,
         f_postprocess_la_output=postprocess_la_adm,
         last_layer_name="out.2",
+        temperature=config.laplace.temperature,
     )
+    print(f"la.temperature: {la.temperature}")
     la.fit(la_dataloader)
     last_layers = la.sample(args.mc_size) # S will be the number of MC samples, D will be the number of parameters in the last layer
 

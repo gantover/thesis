@@ -63,20 +63,6 @@ def generate_la_models(obj):
         approximation=lc.get('approximation', 'diagonal'),
     )
 
-@cli.command()
-@click.pass_obj
-def generate_deep_ensemble_samples(obj):
-    sampling_config = obj['sampling']
-    gen_deep_ensemble_samples(
-        num_samples=sampling_config['num_samples'],
-        batch_size=sampling_config['batch_size'],
-        device=obj['device'],
-        samples_cache_dir=sampling_config['samples_cache_dir'],
-        trained_models_dir=obj['deep-ensemble']['trained_models_dir'],
-        sel_generation=obj['deep-ensemble']['sel_generation'],
-        M=obj['deep-ensemble']['M'],
-    )
-
 @cli.command('build-lora')
 @click.pass_obj
 def build_lora(obj):

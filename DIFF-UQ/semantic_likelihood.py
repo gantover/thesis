@@ -238,7 +238,7 @@ def compute_generative_uncertainty(path, M, eu_type="entropy", encoder_name="cli
     N = len(os.listdir(f"{path}/{0}/imgs"))
     feature_filename = f"{encoder_name}_features.npy"
 
-    features_available = True 
+    features_available = False 
 
     if not features_available:
         for m in tqdm(range(M), desc="Extracting features from models", unit="model"):

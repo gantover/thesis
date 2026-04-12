@@ -29,8 +29,6 @@ def load_deep_ensemble_models(trained_models_dir, sel_generation, M, device):
 def load_la_sampled_models(la_sampled_models_dir, M, device, prior_precision, approximation, curvature, subset, m, temperature):
     models = []
     for model_id in range(M):
-        # m_str = f"_m{m}" if subset == "random" else ""
-        # param_str = f"prior{prior_precision}_approx{approximation}_curv{curvature}_subset{subset}{m_str}"
         param_str = get_param_str(prior_precision, approximation, curvature, subset, m=m, temperature=temperature)
         chkpt_path = Path(la_sampled_models_dir) / f"la_sample_{model_id}_{param_str}.pt"
         if not chkpt_path.exists():

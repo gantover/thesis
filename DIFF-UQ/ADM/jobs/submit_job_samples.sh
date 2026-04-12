@@ -31,7 +31,7 @@ module load cuda/12.1
 
 # 2. Activate Virtual Environment
 # Assuming your .venv is one level up from ADM folder
-source ../.venv/bin/activate
+source ../../.venv/bin/activate
 
 # 3. Memory Fragmentation Fix (Helps with OOM errors)
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

@@ -11,11 +11,11 @@ laplace-ensemble:
   # Regularization params
   # Essential: Acts as the `lambda` in (H + \lambda I)^-1. High values (e.g., 10.0) 
   # strictly prevent the model from collapsing to noise by regularizing flat directions in the loss landscape.
-  prior_precision: 0.1 
+  prior_precision: 1000.0 
   # Simplification: With proper prior_precision, you can just leave this at 1.0 (no effect).
   sample_temperature: 0.01 # Higher values (e.g., 2.0) increase the diversity of sampled models but can lead to worse performance if set too high. 
   
-  approximation: "icla" # 'full' (full Hessian) is the most accurate but computationally expensive. 'diagonal' is a scalable approximation.
+  approximation: "diagonal" # 'full' (full Hessian) is the most accurate but computationally expensive. 'diagonal' is a scalable approximation.
   curvature: "ef" # 'ggn' (Generalized Gauss-Newton) or 'ef' (Empirical Fisher).
   # Essential: 'last_layer' is safer but less expressive. 'random' is more expressive but requires tuning the regularizers above.
   subset: "last_layer" # 'last_layer' or 'random'

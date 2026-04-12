@@ -53,11 +53,11 @@ echo "HF_XET_CACHE: $HF_XET_CACHE"
 echo "TMPDIR: $TMPDIR"
 
 # If a prior V100 run patched HPSv3 config, restore the original for A100 jobs.
-HPSV3_DEFAULT_CFG="../../.venv/lib64/python3.9/site-packages/hpsv3/config/HPSv3_7B.yaml"
-if [ -f "${HPSV3_DEFAULT_CFG}.bak" ]; then
-	cp "${HPSV3_DEFAULT_CFG}.bak" "$HPSV3_DEFAULT_CFG"
-	echo "Restored original HPSv3 config: $HPSV3_DEFAULT_CFG"
-fi
+# HPSV3_DEFAULT_CFG="../../.venv/lib64/python3.9/site-packages/hpsv3/config/HPSv3_7B.yaml"
+# if [ -f "${HPSV3_DEFAULT_CFG}.bak" ]; then
+# 	cp "${HPSV3_DEFAULT_CFG}.bak" "$HPSV3_DEFAULT_CFG"
+# 	echo "Restored original HPSv3 config: $HPSV3_DEFAULT_CFG"
+# fi
 
 # 3. Memory Fragmentation Fix (Helps with OOM errors)
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

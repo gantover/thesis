@@ -1,6 +1,7 @@
 export DATA_PATH="/dtu/datasets1/imagenet_object_localization_patched2019/ILSVRC/Data/CLS-LOC/val/"
 export TRAIN_DATA_PATH="/dtu/datasets1/imagenet_object_localization_patched2019/ILSVRC/Data/CLS-LOC/train/"
 # export EXP_PATH="/dtu/blackhole/13/213811/s243425/images/IMAGENET128/ddim_classifier_fixed_class10000_train%100_step50_S5_epi_unc_1234"
-export EXP_PATH="/dtu/blackhole/13/213811/s243425/images/IMAGENET128/ddim_fixed_class10000_train%100_step50_S5_epi_unc_1234_full"
+# export EXP_PATH="/dtu/blackhole/13/213811/s243425/images/IMAGENET128/ddim_fixed_class10000_train%100_step50_S5_epi_unc_1234_1024"
+export EXP_PATH="/dtu/blackhole/13/213811/s243425/images/IMAGENET128/ddim_temp_classifier_free_fixed_class10000_train%100_step50_S5_epi_unc_1234_1024"
 export REF_PATH="/dtu/blackhole/13/213811/s243425/images/IMAGENET128"
 echo "Working in $REF_PATH"

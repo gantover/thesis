@@ -1,7 +1,6 @@
 import numpy as np
 import jax.numpy as jnp
 import pandas as pd
-# import ot
 from sklearn.metrics.pairwise import rbf_kernel
 import scipy.stats as st
 from tqdm.auto import tqdm

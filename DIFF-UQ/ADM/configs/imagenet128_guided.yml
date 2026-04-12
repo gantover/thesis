@@ -69,3 +69,6 @@ sampling:
     fid_batch_size: 200
     cond_class: true
     classifier_scale: 1.0
+
+laplace:
+    temperature: 0.1

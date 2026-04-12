@@ -28,6 +28,8 @@ dependencies = [
     "curvlinops-for-pytorch<3",
     "wandb>=0.25.1",
     "pandas>=3.0.2",
+    "hpsv3>=1.0.0",
+    "tensorboard>=2.20.0",
 ]
 
 [[tool.uv.index]]

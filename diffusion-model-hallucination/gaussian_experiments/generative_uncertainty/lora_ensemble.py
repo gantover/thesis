@@ -1,6 +1,5 @@
 import copy
 import math
-import os
 from pathlib import Path
 
 import torch
@@ -8,7 +7,7 @@ import torch.nn as nn
 import numpy as np
 
 from ddpm_torch.modules import Linear as CustomLinear
-from .ensemble_weights import _get_diffusion_target
+from .laplace_hessian import _get_diffusion_target
 
 class LoRALinear(nn.Module):
     def __init__(self, linear_layer, r=4, alpha=1.0):
