@@ -1,4 +1,4 @@
-laplace-ensemble:
+laplace_ensemble:
   # --- File Paths & Basic Model Details ---
   la_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/la_sampled"
   last_layer_name: "out_fc" # Only used if subset='last_layer'
@@ -13,7 +13,7 @@ laplace-ensemble:
   # strictly prevent the model from collapsing to noise by regularizing flat directions in the loss landscape.
   prior_precision: 1000.0 
   # Simplification: With proper prior_precision, you can just leave this at 1.0 (no effect).
-  sample_temperature: 0.01 # Higher values (e.g., 2.0) increase the diversity of sampled models but can lead to worse performance if set too high. 
+  temperature: 0.01 # Higher values (e.g., 2.0) increase the diversity of sampled models but can lead to worse performance if set too high. 
   
   approximation: "diagonal" # 'full' (full Hessian) is the most accurate but computationally expensive. 'diagonal' is a scalable approximation.
   curvature: "ef" # 'ggn' (Generalized Gauss-Newton) or 'ef' (Empirical Fisher).
@@ -25,9 +25,26 @@ laplace-ensemble:
   weight_sampling_seed: 42
   subset_seed: 42        
 
-lora-ensemble:
+laplace_lora_ensemble:
+  la_lora_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/la_lora_sampled"
+  r: 4 # LoRA rank. Higher = more expressive but more prone to overfitting and instability. 4 is a good default for small datasets.
+  alpha: 2.0
+  map_epochs: 20
+  map_lr: 0.001
+  laplace_batches: 64
+  laplace_batch_size: 2048
+  prior_precision: 1.0
+  temperature: 1.0
+  weight_sampling_seed: 42
+  curvature: "ef"
+  approximation: "diagonal"
+  # Essential for accuracy: How much data you use to compute the Hessian matrix. 
+  # Higher = better approximation, but takes longer and uses more memory. 64x2048 is a good robust default.
+  laplace_batches: 64
+  laplace_batch_size: 2048
+
+lora_ensemble:
   lora_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/lora_sampled"
-  M: 5
   r: 4
   alpha: 2.0 # 4.0
   epochs: 20 
@@ -35,7 +52,7 @@ lora-ensemble:
   batch_size: 2048
 
 # was trained with Aithal et al. original code
-deep-ensemble:
+deep_ensemble:
   # trained_models_dir: "chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_s1_fds_ensemble_model_seed_{seed}"
   trained_models_dir: "chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_fixed_ds_ensemble_model_seed_{seed}" 
   sel_generation: 0

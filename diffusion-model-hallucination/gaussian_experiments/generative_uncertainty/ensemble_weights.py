@@ -10,7 +10,8 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from ddpm_torch.toy import GaussianDiffusion, get_beta_schedule
 from .laplace_hessian import compute_hessian_approx
 from .model_loading import load_base_model
-from .utils import get_param_str
+from .utils import get_param_str_la
+from .config import LaplaceEnsembleConfig, DeepEnsembleConfig
 
 
 class LaplaceDecoderAdapter(torch.nn.Module):
@@ -89,7 +90,7 @@ def get_subnetwork_indices(model, subset, m, subset_seed, last_layer_name):
 
 # Posterior sampling helpers
 
-def _sample_from_posterior(sigma, mean, M, approximation, sample_temperature, m_eff, device):
+def _sample_from_posterior(sigma, mean, M, approximation, temperature, m_eff, device):
     """Draw M weight samples from the Laplace posterior.
 
     Returns ``(sampled_layers, sigma_scaled)`` where ``sampled_layers`` is a
@@ -97,13 +98,13 @@ def _sample_from_posterior(sigma, mean, M, approximation, sample_temperature, m_
     covariance (for saving to disk).
     """
     if approximation in {"full", "kfac"}:
-        sigma = (sigma + sigma.T) / 2 * sample_temperature ** 2
+        sigma = (sigma + sigma.T) / 2 * temperature ** 2
         dist = torch.distributions.MultivariateNormal(
             mean, covariance_matrix=sigma + 1e-6 * torch.eye(m_eff, device=device)
         )
         return dist.rsample((M,)), sigma
     elif approximation in {"diagonal"}:
-        sigma = torch.clamp(sigma, min=1e-12) * sample_temperature ** 2
+        sigma = torch.clamp(sigma, min=1e-12) * temperature ** 2
         eps = torch.randn(M, m_eff, device=device)
         return mean.unsqueeze(0) + eps * sigma.sqrt().unsqueeze(0), sigma
     else:
@@ -130,73 +131,59 @@ def sample_subset_model(base_model, sampled_vector, flat_indices, device):
 
 
 def build_laplace_ensemble(
-    trained_models_dir,
-    la_sampled_models_dir,
-    diffusion,
-    device,
-    sel_generation=0,
-    M=5,
-    laplace_batches=64,
-    laplace_batch_size=2048,
-    prior_precision=1e-2,
-    sample_temperature=1.0,
-    weight_sampling_seed=None,
-    last_layer_name="out_fc",
-    subset="last_layer",
-    curvature="ef",
-    approximation="diagonal",
-    m=1000,
-    subset_seed=42,
+    de: DeepEnsembleConfig,
+    la: LaplaceEnsembleConfig,
+    device: torch.device,
+    diffusion
 ):
-    print(f"Building Laplace ensemble: subset={subset}, curvature={curvature}, approximation={approximation}")
+    print(f"Building Laplace ensemble: subset={la.subset}, curvature={la.curvature}, approximation={la.approximation}")
 
-    chkpt_dir = Path(trained_models_dir.format(seed=0))
-    base_model = load_base_model(trained_models_dir=trained_models_dir, sel_generation=sel_generation, device=device)
+    chkpt_dir = Path(de.trained_models_dir.format(seed=0))
+    base_model = load_base_model(de_config=de, device=device)
 
     real_dataset_path = chkpt_dir / "real_dataset.npy"
     if not os.path.exists(real_dataset_path):
         raise FileNotFoundError(f"Missing calibration data: {real_dataset_path}")
     real_data = np.load(real_dataset_path)
 
-    if weight_sampling_seed is not None:
-        torch.manual_seed(weight_sampling_seed)
+    if la.weight_sampling_seed is not None:
+        torch.manual_seed(la.weight_sampling_seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(weight_sampling_seed)
+            torch.cuda.manual_seed_all(la.weight_sampling_seed)
 
-    la_chkpt_dir = Path(la_sampled_models_dir)
+    la_chkpt_dir = Path(la.la_sampled_models_dir)
     la_chkpt_dir.mkdir(parents=True, exist_ok=True)
 
     adapter = LaplaceDecoderAdapter(copy.deepcopy(base_model)).to(device)
-    flat_indices = get_subnetwork_indices(base_model, subset, m, subset_seed, last_layer_name).to(device)
+    flat_indices = get_subnetwork_indices(base_model, la.subset, la.m, la.subset_seed, la.last_layer_name).to(device)
     m_eff = len(flat_indices)
 
     sigma = compute_hessian_approx(
         adapter=adapter,
         diffusion=diffusion,
         real_data=real_data,
-        curvature=curvature,
+        curvature=la.curvature,
         flat_indices=flat_indices,
-        n_batches=laplace_batches,
-        batch_size=laplace_batch_size,
-        prior_precision=prior_precision,
+        n_batches=la.laplace_batches,
+        batch_size=la.laplace_batch_size,
+        prior_precision=la.prior_precision,
         device=device,
-        approximation=approximation,
+        approximation=la.approximation,
     )
 
-    param_str = get_param_str(prior_precision, approximation, curvature, subset, m=m, temperature=sample_temperature)
+    param_str = get_param_str_la(la_config=la)
     np.save(la_chkpt_dir / f"pre_sigma_{param_str}.npy", sigma.cpu().numpy())
-    _log_sigma_stats(sigma, approximation, subset)
+    _log_sigma_stats(sigma, la.approximation, la.subset)
 
     mean_subset = parameters_to_vector(base_model.parameters()).detach()[flat_indices]
     sampled_layers, sigma_scaled = _sample_from_posterior(
-        sigma, mean_subset, M, approximation, sample_temperature, m_eff, device
+        sigma, mean_subset, de.M, la.approximation, la.temperature, m_eff, device
     )
     np.save(la_chkpt_dir / f"post_sigma_{param_str}.npy", sigma_scaled.cpu().numpy())
 
-    param_str = get_param_str(prior_precision, approximation, curvature, subset, m=m, temperature=sample_temperature)
     models = [base_model]
 
-    for i in range(M):
+    for i in range(de.M):
         sampled_model = sample_subset_model(
             base_model=base_model,
             sampled_vector=sampled_layers[i],
