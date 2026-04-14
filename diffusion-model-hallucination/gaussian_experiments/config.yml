@@ -28,16 +28,16 @@ laplace_ensemble:
 laplace_lora_ensemble:
   la_lora_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/la_lora_sampled"
   r: 4 # LoRA rank. Higher = more expressive but more prone to overfitting and instability. 4 is a good default for small datasets.
-  alpha: 2.0
+  alpha: 2.0 # 
   map_epochs: 20
   map_lr: 0.001
   laplace_batches: 64
   laplace_batch_size: 2048
-  prior_precision: 1.0
-  temperature: 1.0
+  prior_precision: 10.0
+  temperature: 0.01
   weight_sampling_seed: 42
   curvature: "ef"
-  approximation: "diagonal"
+  approximation: "full"
   # Essential for accuracy: How much data you use to compute the Hessian matrix. 
   # Higher = better approximation, but takes longer and uses more memory. 64x2048 is a good robust default.
   laplace_batches: 64

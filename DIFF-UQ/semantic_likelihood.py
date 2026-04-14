@@ -34,6 +34,13 @@ def parse_args():
         default=256,
         help="Number of images per chunk when computing uncertainty from saved features",
     )
+    parser.add_argument(
+        "--entropy-calculation",
+        type=str,
+        default="diagonal",
+        choices=["full", "diagonal"],
+        help="Method for calculating Gaussian entropy: 'full' uses the exact covariance, 'diagonal' uses only the diagonal approximation",
+    )
     return parser.parse_args()
 
 def exact_gaussian_entropy(mu_array: np.ndarray, sigma_squared: float = 1e-3) -> np.ndarray:
@@ -223,7 +230,7 @@ def build_encoder(encoder_name: str, device: torch.device):
     raise ValueError(f"Unknown encoder: {encoder_name}")
 
 
-def compute_generative_uncertainty(path, M, eu_type="entropy", encoder_name="clip", chunk_size=256):
+def compute_generative_uncertainty(path, M, encoder_name, chunk_size, entropy_calculation, eu_type="entropy"):
     print(f"Loading samples from {M} models from {path} using encoder '{encoder_name}'")
 
     #### 1) Compute image features
@@ -283,33 +290,10 @@ def compute_generative_uncertainty(path, M, eu_type="entropy", encoder_name="cli
 
             # (M, B, D) -> (B, M, D)
             features_chunk = np.transpose(np.stack(chunk_features, axis=0), (1, 0, 2))
-            eu[start:end] = exact_gaussian_entropy(features_chunk, sigma_squared=1e-3)
-
-    elif first_feature.ndim == 3:
-        # DENSE ENCODER (e.g., VGG-16, DINOv2), saved shape per model: (N, P, D)
-        N, P, _ = first_feature.shape
-        eu = np.empty(N, dtype=np.float64)
-        print(f"Loaded DENSE feature shape per model: {tuple(first_feature.shape)}")
-
-        if eu_type != "entropy":
-            raise ValueError(f"Unknown epistemic uncertainty type: {eu_type}")
-
-        for start in tqdm(range(0, N, chunk_size), desc="Computing uncertainty", unit="chunk"):
-            end = min(start + chunk_size, N)
-            chunk_features = []
-            for feature_path in feature_paths:
-                feature_m = np.load(feature_path, mmap_mode="r")
-                chunk_features.append(np.asarray(feature_m[start:end]))
-
-            # (M, B, P, D) -> (B, M, P, D)
-            features_chunk = np.transpose(np.stack(chunk_features, axis=0), (1, 0, 2, 3))
-            B = features_chunk.shape[0]
-
-            # Same math as before: entropy per patch, then max over patches.
-            features_reshaped = features_chunk.reshape(B * P, M, features_chunk.shape[-1])
-            patch_eu = gaussian_entropy(features_reshaped, sigma_squared=1e-4)
-            eu[start:end] = patch_eu.reshape(B, P).max(axis=1)
-
+            if entropy_calculation == "full":
+                eu[start:end] = exact_gaussian_entropy(features_chunk, sigma_squared=1e-3)
+            elif entropy_calculation == "diagonal":
+                eu[start:end] = gaussian_entropy(features_chunk, sigma_squared=1e-3)
     else:
         raise ValueError(f"Unexpected feature dimensions: {first_feature.ndim}")
 
@@ -320,4 +304,4 @@ def compute_generative_uncertainty(path, M, eu_type="entropy", encoder_name="cli
 
 if __name__ == "__main__":
     args = parse_args()
-    compute_generative_uncertainty(args.path, args.M, encoder_name=args.encoder, chunk_size=args.chunk_size)
+    compute_generative_uncertainty(args.path, args.M, encoder_name=args.encoder, chunk_size=args.chunk_size, entropy_calculation=args.entropy_calculation)

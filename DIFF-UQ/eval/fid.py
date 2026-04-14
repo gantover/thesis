@@ -21,6 +21,9 @@ import clip
 from torchvision import transforms
 from PIL import Image
 
+import pandas as pd
+import os
+
 # ----------------------------------------------------------------------------
 
 
@@ -369,6 +372,7 @@ def calc(image_path, ref_path, num_expected, seed, batch, idx_path=None, fid_fea
         fid_features=fid_features,
         clip_features=clip_features,
     )
+
     dist.print0("Calculating FID...")
     if dist.get_rank() == 0:
         fid = calculate_fid_from_inception_stats(mu, sigma, ref["mu"], ref["sigma"])
