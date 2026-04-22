@@ -1,0 +1,1 @@
+python -m scoring.main --exp_path "${EXP_PATH}" --ref_path "${REF_PATH}"

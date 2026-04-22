@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shared-utils"
+version = "0.1.0"
+
+[tool.setuptools]
+packages = ["shared_utils"]
+
+[tool.setuptools.package-dir]
+shared_utils = "."

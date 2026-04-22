@@ -23,9 +23,21 @@ def init():
     if 'WORLD_SIZE' not in os.environ:
         os.environ['WORLD_SIZE'] = '1'
 
-    backend = 'gloo' if os.name == 'nt' else 'nccl'
-    torch.distributed.init_process_group(backend=backend, init_method='env://')
-    torch.cuda.set_device(int(os.environ.get('LOCAL_RANK', '0')))
+    if os.environ['WORLD_SIZE'] == '1':
+        backend = 'gloo'
+    else:
+        backend = 'gloo' if os.name == 'nt' else 'nccl'
+    
+    local_rank = int(os.environ.get('LOCAL_RANK', '0'))
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        try:
+            torch.distributed.init_process_group(backend=backend, init_method='env://', device_id=torch.device(f"cuda:{local_rank}"))
+        except TypeError:
+            # Fallback for older PyTorch versions
+            torch.distributed.init_process_group(backend=backend, init_method='env://')
+    else:
+        torch.distributed.init_process_group(backend=backend, init_method='env://')
 
     sync_device = torch.device('cuda') if get_world_size() > 1 else None
     training_stats.init_multiprocessing(rank=get_rank(), sync_device=sync_device)

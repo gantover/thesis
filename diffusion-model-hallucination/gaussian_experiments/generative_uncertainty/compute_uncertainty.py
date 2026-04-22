@@ -16,6 +16,7 @@ def get_uncertainty_scores(
     kind: str = "diagonal_gaussian_entropy",
     eps: float = 1e-8,
     var_clip_max: float = 1e8,
+    include_base: bool = True,
 ):
     """Compute uncertainty scores robustly, even with occasional non-finite ensemble samples.
 
@@ -24,6 +25,9 @@ def get_uncertainty_scores(
     """
     if var_clip_max <= eps:
         raise ValueError(f"var_clip_max must be > eps. Got var_clip_max={var_clip_max}, eps={eps}.")
+
+    if not include_base:
+        uncertainty_ensemble = uncertainty_ensemble[1:]
 
     ensemble = _sanitize_ensemble(uncertainty_ensemble)
     num_models, num_samples, dim = ensemble.shape

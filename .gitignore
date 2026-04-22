@@ -216,7 +216,13 @@ Output_*.err
 Output_*.out
 
 *.pkl
+*.pdf
+*.png
 .claude
 old_.venv
 uv.lock
 .deleted/
+
+upscaling/eval_dataset
+upscaling/sampled_images
+upscaling/ensemble_weights

@@ -51,18 +51,20 @@ nvidia-smi
 # bash ./$base/2_fid_ref_stats.sh     # one-time: compute FID reference stats and real-image P&R features
 
 # Extract Inception features for ALL generated images (prerequisite for realism scoring).
-bash ./$base/3_all_features.sh
+# bash ./$base/3_all_features.sh
 
 # Compute per-image realism scores from the full feature set.
-bash ./$base/3_realism_eval.sh
+# bash ./$base/3_realism_eval.sh
 
 # Compute per-image rarity scores from the full feature set.
-bash ./$base/3_rarity_eval.sh
+# bash ./$base/3_rarity_eval.sh
 
 # Run all four baselines (Random / GU / Realism / Rarity) at each budget N.
-for N in 12000 11000 10000 9000 8000 7000 6000 
+# for N in 12000 11000 10000 9000 8000 7000 6000 
 # for N in 1000 900 800 700 600 500 
-do
-  bash ./$base/4_baselines.sh $N
-  echo "---"
-done
+# do
+  # bash ./$base/4_baselines.sh $N
+  # echo "---"
+# done
+
+python -m scoring.main --exp_path "$EXP_PATH" --ref_path "$REF_PATH"
