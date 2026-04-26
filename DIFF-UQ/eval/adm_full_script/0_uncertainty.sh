@@ -1,0 +1,1 @@
+python ../compute_uncertainty.py --path "$EXP_PATH" --mode precomputed --M 5 --encoder clip 

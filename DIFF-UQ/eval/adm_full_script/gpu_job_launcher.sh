@@ -44,11 +44,14 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # 4. Debug: Print GPU info to log
 nvidia-smi
 
+
 # 5. Run the script
 # We run main.sh directly. Ensure main.sh is executable (chmod +x main.sh)
 # bash ./$base/1_dataset.sh           # one-time: package val images as zip
 
 # bash ./$base/2_fid_ref_stats.sh     # one-time: compute FID reference stats and real-image P&R features
+
+# bash ./$base/0_uncertainty.sh        # compute per-image uncertainty scores (if not already done)
 
 # Extract Inception features for ALL generated images (prerequisite for realism scoring).
 # bash ./$base/3_all_features.sh
