@@ -3,7 +3,7 @@ from pathlib import Path
 from ddpm_torch.toy import Decoder
 from .lora_ensemble import inject_lora
 from .utils import get_param_str_la, get_param_str_la_lora
-from .config import LaplaceEnsembleConfig, LaplaceLoraEnsembleConfig, DeepEnsembleConfig, LoraEnsembleConfig
+from .config import LaplaceEnsembleConfig, LaplaceLoraEnsembleConfig, DeepEnsembleConfig, LoraEnsembleConfig, OftEnsembleConfig
 
 def load_model_from_checkpoint(chkpt_path, device):
     model = Decoder(in_features=2, mid_features=128, num_temporal_layers=3)
@@ -119,3 +119,33 @@ def load_base_model(de_config: DeepEnsembleConfig, device: torch.device):
     if not chkpt_path.exists():
         raise FileNotFoundError(f"Missing checkpoint: {chkpt_path}")
     return load_model_from_checkpoint(chkpt_path=chkpt_path, device=device)
+    
+def load_oft_model_from_checkpoint(chkpt_path, device, base_model):
+    from peft import PeftModel
+    import copy
+    
+    model = copy.deepcopy(base_model)
+    from .oft_ensemble import convert_to_standard_linear
+    convert_to_standard_linear(model)
+    
+    # Load the PEFT adapter onto the pre-trained base model weights
+    peft_model = PeftModel.from_pretrained(model, chkpt_path)
+    peft_model.to(device)
+    peft_model.eval()
+    return peft_model
+
+def load_oft_ensemble_models(oft_config: OftEnsembleConfig, de_config: DeepEnsembleConfig, device: torch.device):
+    base_model = load_base_model(de_config, device)
+    models = []
+    for model_id in range(de_config.M):
+        chkpt_path = Path(oft_config.oft_sampled_models_dir) / f"oft_sample_{model_id}.pt"
+        if not chkpt_path.exists():
+            raise FileNotFoundError(f"Missing OFT sampled model checkpoint: {chkpt_path}")
+        models.append(
+            load_oft_model_from_checkpoint(
+                chkpt_path=chkpt_path,
+                device=device,
+                base_model=base_model,
+            )
+        )
+    return models

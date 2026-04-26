@@ -64,8 +64,7 @@ def build_lora(app_ctx: AppContext):
     real_data = np.load(str(real_data_path))
 
     base_model = load_base_model(
-        trained_models_dir=dc.trained_models_dir,
-        sel_generation=dc.sel_generation,
+        de_config=dc,
         device=app_ctx.device
     )
 
@@ -74,12 +73,42 @@ def build_lora(app_ctx: AppContext):
         diffusion=get_diffusion(),
         real_data=real_data,
         save_dir=lc.lora_sampled_models_dir,
-        M=lc.M,
+        M=dc.M,
         r=lc.r,
         alpha=lc.alpha,
         epochs=lc.epochs,
         batch_size=lc.batch_size,
         lr=lc.lr,
+        device=app_ctx.device
+    )
+
+@cli.command('build-oft')
+@click.pass_obj
+def build_oft(app_ctx: AppContext):
+    from .oft_ensemble import build_oft_ensemble
+    oc = app_ctx.config.oft_ensemble
+    dc = app_ctx.config.deep_ensemble
+
+    chkpt_dir = Path(dc.trained_models_dir.format(seed=0))
+    real_data_path = chkpt_dir / "real_dataset.npy"
+    real_data = np.load(str(real_data_path))
+
+    base_model = load_base_model(
+        de_config=dc,
+        device=app_ctx.device
+    )
+
+    build_oft_ensemble(
+        base_model=base_model,
+        diffusion=get_diffusion(),
+        real_data=real_data,
+        save_dir=oc.oft_sampled_models_dir,
+        M=dc.M,
+        boft_block_size=oc.boft_block_size,
+        boft_n_butterfly_factor=oc.boft_n_butterfly_factor,
+        epochs=oc.epochs,
+        batch_size=oc.batch_size,
+        lr=oc.lr,
         device=app_ctx.device
     )
 
@@ -95,7 +124,7 @@ def build_laplace_lora(app_ctx: AppContext):
     )
 
 @cli.command('sample')
-@click.option('--ensemble-type', type=click.Choice(['deep', 'la', 'lora', 'la-lora']), required=True)
+@click.option('--ensemble-type', type=click.Choice(['deep', 'la', 'lora', 'la-lora', 'oft']), required=True)
 @click.pass_obj
 def sample(app_ctx: AppContext, ensemble_type):
     sampling_config = app_ctx.config.sampling
@@ -120,6 +149,14 @@ def sample(app_ctx: AppContext, ensemble_type):
             sampling_config = sampling_config,
             device=app_ctx.device,
             lora_ensemble_config=app_ctx.config.lora_ensemble,
+            deep_ensemble_config=app_ctx.config.deep_ensemble
+        )
+    elif ensemble_type == 'oft':
+        from .ensemble_sampling import gen_oft_ensemble_samples
+        gen_oft_ensemble_samples(
+            sampling_config=sampling_config,
+            device=app_ctx.device,
+            oft_ensemble_config=app_ctx.config.oft_ensemble,
             deep_ensemble_config=app_ctx.config.deep_ensemble
         )
     elif ensemble_type == 'la-lora':

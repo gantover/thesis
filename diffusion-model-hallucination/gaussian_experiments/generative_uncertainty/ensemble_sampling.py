@@ -15,6 +15,7 @@ from .config import (
     AppConfig, 
     LaplaceEnsembleConfig, 
     LoraEnsembleConfig, 
+    OftEnsembleConfig,
     DeepEnsembleConfig, 
     SamplingConfig, 
     LaplaceLoraEnsembleConfig
@@ -73,6 +74,20 @@ def gen_lora_ensemble_samples(sampling_config: SamplingConfig, device: torch.dev
         samples_cache_path=samples_cache_path,
     )
 
+
+def gen_oft_ensemble_samples(sampling_config: SamplingConfig, device: torch.device, oft_ensemble_config: OftEnsembleConfig, deep_ensemble_config: DeepEnsembleConfig):
+    from .model_loading import load_oft_ensemble_models
+    base_model = load_base_model(de_config=deep_ensemble_config, device=device)
+    oft_models = load_oft_ensemble_models(oft_config=oft_ensemble_config, de_config=deep_ensemble_config, device=device)
+    models = [base_model] + oft_models
+    Path(sampling_config.samples_cache_dir).mkdir(parents=True, exist_ok=True)
+    samples_cache_path = Path(sampling_config.samples_cache_dir) / "oft_ensemble_samples.npy"
+    sample_ensemble_samples(
+        ensemble_models=models,
+        sampling_config=sampling_config,
+        device=device,
+        samples_cache_path=samples_cache_path,
+    )
 
 def sample_ensemble_samples(ensemble_models, sampling_config: SamplingConfig, device, samples_cache_path):
     timesteps = 1000

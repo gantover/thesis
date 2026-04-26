@@ -51,6 +51,14 @@ lora_ensemble:
   lr: 0.001
   batch_size: 2048
 
+oft_ensemble:
+  oft_sampled_models_dir: "/dtu/blackhole/13/213811/s243425/gaussian_experiment/models/oft_sampled"
+  boft_block_size: 64
+  boft_n_butterfly_factor: 2
+  epochs: 40 
+  lr: 0.001
+  batch_size: 2048
+
 # was trained with Aithal et al. original code
 deep_ensemble:
   # trained_models_dir: "chkpts/gaussian25_100000_g_1_e_10000_t1000_m128_nl3_blinear_seed{seed}_s1_fds_ensemble_model_seed_{seed}"

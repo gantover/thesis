@@ -44,6 +44,14 @@ class LoraEnsembleConfig(BaseModel):
     lr: float
     batch_size: int
 
+class OftEnsembleConfig(BaseModel):
+    oft_sampled_models_dir: str
+    boft_block_size: int
+    boft_n_butterfly_factor: int
+    epochs: int
+    lr: float
+    batch_size: int
+
 class SamplingConfig(BaseModel):
     num_samples: int
     batch_size: int
@@ -53,6 +61,7 @@ class AppConfig(BaseModel):
     laplace_ensemble: LaplaceEnsembleConfig
     laplace_lora_ensemble: LaplaceLoraEnsembleConfig
     lora_ensemble: LoraEnsembleConfig
+    oft_ensemble: OftEnsembleConfig
     deep_ensemble: DeepEnsembleConfig
     sampling: SamplingConfig
 
