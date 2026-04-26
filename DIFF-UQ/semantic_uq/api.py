@@ -8,7 +8,7 @@ from PIL import Image
 from typing import List, Optional
 
 from .encoders import build_encoder
-from .entropy import exact_gaussian_entropy, gaussian_entropy, trace_variance
+from .entropy import exact_gaussian_entropy, gaussian_entropy, trace_variance, distance_to_anchor
 from .perturbations import ImagePerturber
 
 def compute_uncertainty_precomputed(
@@ -80,6 +80,8 @@ def compute_uncertainty_precomputed(
             eu[start:end] = gaussian_entropy(features_chunk, sigma_squared=1e-3, anchor_base=anchor_base)
         elif entropy_calculation == "trace":
             eu[start:end] = trace_variance(features_chunk, anchor_base=anchor_base)
+        elif entropy_calculation == "distance":
+            eu[start:end] = distance_to_anchor(features_chunk)
         else:
             raise ValueError(f"Unknown entropy calculation mode: {entropy_calculation}")
 
@@ -180,6 +182,8 @@ def compute_uncertainty_onthefly(
             batch_eu = gaussian_entropy(features, sigma_squared=1e-3, anchor_base=anchor_base)
         elif entropy_calculation == "trace":
             batch_eu = trace_variance(features, anchor_base=anchor_base)
+        elif entropy_calculation == "distance":
+            batch_eu = distance_to_anchor(features)
         else:
             raise ValueError(f"Unknown entropy calculation mode: {entropy_calculation}")
             

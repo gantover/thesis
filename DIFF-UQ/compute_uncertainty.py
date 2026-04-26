@@ -23,8 +23,8 @@ def parse_args():
         "--entropy-calculation",
         type=str,
         default="diagonal",
-        choices=["full", "diagonal", "trace"],
-        help="Method for calculating Gaussian entropy: 'full', 'diagonal', or 'trace' (Total Variance)",
+        choices=["full", "diagonal", "trace", "distance"],
+        help="Method for calculating Gaussian entropy: 'full', 'diagonal', 'trace', or 'distance' (Cosine distance to anchor)",
     )
     
     # On-the-fly specific parameters

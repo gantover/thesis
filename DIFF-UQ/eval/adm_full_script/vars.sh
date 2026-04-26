@@ -12,3 +12,11 @@ export TRAIN_DATA_PATH="/dtu/datasets1/imagenet_object_localization_patched2019/
 export EXP_PATH="/dtu/blackhole/13/213811/s243425/images/IMAGENET128/ddim_fixed_class10000_train%100_step50_S5_epi_unc_1234_direct_perturbation_full_fly_2"
 export REF_PATH="/dtu/blackhole/13/213811/s243425/images/IMAGENET128"
 # echo "Working in $REF_PATH"
+
+export HF_HOME="${REF_PATH}/_hf_home"
+export HF_HUB_CACHE="${HF_HOME}/hub"
+export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
+export HF_XET_CACHE="${HF_HOME}/xet"
+export TMPDIR="${EXP_PATH}/_tmp"
+export TMP="${TMPDIR}"
+export TEMP="${TMPDIR}"
