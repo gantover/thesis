@@ -158,7 +158,7 @@ def build_laplace_ensemble(
     flat_indices = get_subnetwork_indices(base_model, la.subset, la.m, la.subset_seed, la.last_layer_name).to(device)
     m_eff = len(flat_indices)
 
-    sigma = compute_hessian_approx(
+    sigma, H = compute_hessian_approx(
         adapter=adapter,
         diffusion=diffusion,
         real_data=real_data,
@@ -172,6 +172,14 @@ def build_laplace_ensemble(
     )
 
     param_str = get_param_str_la(la_config=la)
+    
+    # Extract diagonal Fisher
+    if la.approximation in {"full", "kfac"}:
+        H_diag = torch.diag(H)
+    else:
+        H_diag = H
+    np.save(la_chkpt_dir / f"fisher_diag_{param_str}.npy", H_diag.cpu().numpy())
+
     np.save(la_chkpt_dir / f"pre_sigma_{param_str}.npy", sigma.cpu().numpy())
     _log_sigma_stats(sigma, la.approximation, la.subset)
 

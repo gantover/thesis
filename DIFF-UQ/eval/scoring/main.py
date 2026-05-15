@@ -49,23 +49,24 @@ def main(exp_path, ref_path):
         print(f"Processing N={N}")
         
         # 1. Random baseline
-        # print("  - Random")
+        print("  - Random")
         # Use first N features
-        # eval_features_pt = full_eval_features_pt[:N]
-        # mu, sigma = get_stats_from_features(eval_features_pt)
+        eval_features_pt = full_eval_features_pt[:N]
+        mu, sigma = get_stats_from_features(eval_features_pt)
 
-        # random_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
-        # random_pr_dict = knn_precision_recall_features(
-        #     prt_ref_features, 
-        #     eval_features_pt.numpy(), 
-        #     row_batch_size=10000, col_batch_size=10000
-        # )
-        # random_precision, random_recall = random_pr_dict["precision"], random_pr_dict["recall"]
-        # print(f"    FID: {random_fid} Precision: {random_precision}, Recall: {random_recall}")
-        # scores.append({"N": N, "Method": "Random", "FID": random_fid, "Precision": random_precision, "Recall": random_recall})
+        random_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
+        random_pr_dict = knn_precision_recall_features(
+            prt_ref_features, 
+            eval_features_pt.numpy(), 
+            row_batch_size=10000, col_batch_size=10000
+        )
+        random_precision, random_recall = random_pr_dict["precision"], random_pr_dict["recall"]
+        print(f"    FID: {random_fid} Precision: {random_precision}, Recall: {random_recall}")
+        scores.append({"N": N, "Method": "Random", "FID": random_fid, "Precision": random_precision, "Recall": random_recall})
         
         # 2. G.U. baseline
         print("  - G.U.")
+        # idx_sort(path=exp_path, name="entropy_dinov2_vitl14_reg", N=N, reverse=False)
         idx_sort(path=exp_path, name="entropy_clip", N=N, reverse=False)
         idx_gu = np.load(str(Path(exp_path) / f"idx_sorted_{N}_entropy_clip.npy"))
         eval_features_pt = full_eval_features_pt[idx_gu]
@@ -83,41 +84,60 @@ def main(exp_path, ref_path):
         scores.append({"N": N, "Method": "G.U.", "FID": gu_fid, "Precision": gu_precision, "Recall": gu_recall})
 
         # 3. Realism baseline
-        # print("  - Realism")
-        # idx_sort_path = str(Path(exp_path) / "0")
-        # idx_sort(path=idx_sort_path, name="realism", N=N, reverse=True)
-        # idx_realism = np.load(str(Path(exp_path) / "0" / f"idx_sorted_{N}_realism.npy"))
-        # eval_features_pt = full_eval_features_pt[idx_realism]
+        print("  - Realism")
+        idx_sort_path = str(Path(exp_path) / "0")
+        idx_sort(path=idx_sort_path, name="realism", N=N, reverse=True)
+        idx_realism = np.load(str(Path(exp_path) / "0" / f"idx_sorted_{N}_realism.npy"))
+        eval_features_pt = full_eval_features_pt[idx_realism]
         
-        # mu, sigma = get_stats_from_features(eval_features_pt)
-        # realism_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
+        mu, sigma = get_stats_from_features(eval_features_pt)
+        realism_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
         
-        # realism_pr_dict = knn_precision_recall_features(
-        #     prt_ref_features, 
-        #     eval_features_pt.numpy(), 
-        #     row_batch_size=10000, col_batch_size=10000
-        # )
-        # realism_precision, realism_recall = realism_pr_dict["precision"], realism_pr_dict["recall"]
-        # print(f"    FID: {realism_fid} Precision: {realism_precision}, Recall: {realism_recall}")
-        # scores.append({"N": N, "Method": "Realism", "FID": realism_fid, "Precision": realism_precision, "Recall": realism_recall})
+        realism_pr_dict = knn_precision_recall_features(
+            prt_ref_features, 
+            eval_features_pt.numpy(), 
+            row_batch_size=10000, col_batch_size=10000
+        )
+        realism_precision, realism_recall = realism_pr_dict["precision"], realism_pr_dict["recall"]
+        print(f"    FID: {realism_fid} Precision: {realism_precision}, Recall: {realism_recall}")
+        scores.append({"N": N, "Method": "Realism", "FID": realism_fid, "Precision": realism_precision, "Recall": realism_recall})
 
         # 4. Rarity baseline
-        # print("  - Rarity")
-        # idx_sort(path=idx_sort_path, name="rarity", N=N, reverse=False)
-        # idx_rarity = np.load(str(Path(exp_path) / "0" / f"idx_sorted_{N}_rarity.npy"))
-        # eval_features_pt = full_eval_features_pt[idx_rarity]
+        print("  - Rarity")
+        idx_sort(path=idx_sort_path, name="rarity", N=N, reverse=False)
+        idx_rarity = np.load(str(Path(exp_path) / "0" / f"idx_sorted_{N}_rarity.npy"))
+        eval_features_pt = full_eval_features_pt[idx_rarity]
         
-        # mu, sigma = get_stats_from_features(eval_features_pt)
-        # rarity_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
+        mu, sigma = get_stats_from_features(eval_features_pt)
+        rarity_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
         
-        # rarity_pr_dict = knn_precision_recall_features(
-        #     prt_ref_features, 
-        #     eval_features_pt.numpy(), 
-        #     row_batch_size=10000, col_batch_size=10000
-        # )
-        # rarity_precision, rarity_recall = rarity_pr_dict["precision"], rarity_pr_dict["recall"]
-        # print(f"    FID: {rarity_fid} Precision: {rarity_precision}, Recall: {rarity_recall}")
-        # scores.append({"N": N, "Method": "Rarity", "FID": rarity_fid, "Precision": rarity_precision, "Recall": rarity_recall})
+        rarity_pr_dict = knn_precision_recall_features(
+            prt_ref_features, 
+            eval_features_pt.numpy(), 
+            row_batch_size=10000, col_batch_size=10000
+        )
+        rarity_precision, rarity_recall = rarity_pr_dict["precision"], rarity_pr_dict["recall"]
+        print(f"    FID: {rarity_fid} Precision: {rarity_precision}, Recall: {rarity_recall}")
+        scores.append({"N": N, "Method": "Rarity", "FID": rarity_fid, "Precision": rarity_precision, "Recall": rarity_recall})
+
+        # 5. HPSv3 baseline 
+        print("  - HPSv3")
+        idx_sort_path = str(Path(exp_path) / "0")
+        idx_sort(path=idx_sort_path, name="hps", N=N, reverse=True)
+        idx_hps = np.load(str(Path(exp_path) / "0" / f"idx_sorted_{N}_hps.npy"))
+        eval_features_pt = full_eval_features_pt[idx_hps]
+        
+        mu, sigma = get_stats_from_features(eval_features_pt)
+        hpsv3_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
+        
+        hpsv3_pr_dict = knn_precision_recall_features(
+            prt_ref_features, 
+            eval_features_pt.numpy(), 
+            row_batch_size=10000, col_batch_size=10000
+        )
+        hpsv3_precision, hpsv3_recall = hpsv3_pr_dict["precision"], hpsv3_pr_dict["recall"]
+        print(f"    FID: {hpsv3_fid} Precision: {hpsv3_precision}, Recall: {hpsv3_recall}")
+        scores.append({"N": N, "Method": "HPSv3", "FID": hpsv3_fid, "Precision": hpsv3_precision, "Recall": hpsv3_recall})
 
         scores_df = pd.DataFrame(scores)
         scores_df.to_pickle(Path(exp_path) / "scores.pkl")

@@ -10,7 +10,7 @@ def parse_args():
         "--encoder",
         type=str,
         default="clip",
-        choices=["clip", "dinov2_vits14_reg", "vgg16", "siglip", "openclip_h14"],
+        choices=["clip", "dinov2_vitl14_reg", "vgg16", "siglip", "openclip_h14"],
         help="Encoder used to extract image features",
     )
     parser.add_argument(

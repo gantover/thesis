@@ -233,4 +233,4 @@ def compute_hessian_approx(adapter, diffusion, real_data, curvature, flat_indice
     else:
         raise ValueError(f"Unsupported approximation '{approximation}'. Expected 'kfac', 'diagonal', or 'full'.")
 
-    return _hessian_to_sigma(H, approximation, prior_precision, m, device)
+    return _hessian_to_sigma(H, approximation, prior_precision, m, device), H

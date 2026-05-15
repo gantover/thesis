@@ -105,8 +105,8 @@ def build_encoder(encoder_name: str, device: torch.device):
         preprocess_gpu = extract_clip_params(preprocess, device)
         return preprocess, encode_batch, preprocess_gpu
 
-    if encoder_name == "dinov2_vits14_reg":
-        model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
+    if encoder_name == "dinov2_vitl14_reg":
+        model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14_reg")
         model.eval().to(device)
         preprocess = dinov2_preprocess
 

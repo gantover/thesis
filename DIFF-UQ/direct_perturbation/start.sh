@@ -8,4 +8,5 @@ EXP_DIR="/dtu/blackhole/13/213811/s243425/images/IMAGENET128/ddim_fixed_class100
 # python semantic_likelihood.py --path "$EXP_DIR" --encoder "clip"
 # python compute_uncertainty.py --path "$EXP_DIR" --mode onthefly --M 20 --sigma 0.02 --use_transforms --encoder clip 
 # python compute_uncertainty.py --path "$EXP_DIR" --mode onthefly --M 128 --sigma 0.02 --encoder clip --entropy-calculation distance
-python compute_uncertainty.py --path "$EXP_DIR" --mode onthefly --M 8 --sigma 0.02 --encoder dinov2_vits14_reg --entropy-calculation diagonal --unanchored-variance
+# python compute_uncertainty.py --path "$EXP_DIR" --mode onthefly --M 5 --sigma 0.02 --encoder dinov2_vitl14_reg --entropy-calculation diagonal --unanchored-variance
+python compute_uncertainty.py --path "$EXP_DIR" --mode onthefly --M 10 --sigma 0.02 --encoder dinov2_vitl14_reg --entropy-calculation trace --unanchored-variance

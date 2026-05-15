@@ -1,10 +1,13 @@
 import numpy as np
 
 
-def exact_gaussian_entropy(mu_array: np.ndarray, sigma_squared: float = 1e-3, anchor_base: bool = False) -> np.ndarray:
+def exact_gaussian_entropy(mu_array: np.ndarray, sigma_squared: float = 1e-8, anchor_base: bool = False) -> np.ndarray:
     """
     Computes the EXACT full-covariance entropy of a multivariate Gaussian 
     using the Dual Covariance (Gram Matrix) trick.
+    
+    Note on sigma_squared: Default is 1e-8 to act as a safe numerical stabilizer 
+    for both unnormalized features and L2-normalized embeddings (which have tiny variances).
     """
     mu_array = np.asarray(mu_array, dtype=np.float64)
     if len(mu_array.shape) == 2:
@@ -34,8 +37,13 @@ def exact_gaussian_entropy(mu_array: np.ndarray, sigma_squared: float = 1e-3, an
         dual_cov = (centered @ centered.T) / denominator
         
         eigenvalues = np.linalg.eigvalsh(dual_cov)
-        active_eigenvalues = np.sort(eigenvalues)[-active_dims:]
-        active_eigenvalues = np.clip(active_eigenvalues, 0.0, None)
+        active_dims = max(0, min(M - 1, D))
+        
+        if active_dims > 0:
+            active_eigenvalues = np.sort(eigenvalues)[-active_dims:]
+            active_eigenvalues = np.clip(active_eigenvalues, 0.0, None)
+        else:
+            active_eigenvalues = np.array([])
         
         log_det_active = np.sum(np.log(active_eigenvalues + sigma_squared))
         log_det_inactive = (D - active_dims) * np.log(sigma_squared)
@@ -47,9 +55,12 @@ def exact_gaussian_entropy(mu_array: np.ndarray, sigma_squared: float = 1e-3, an
         return entropy[0]
     return entropy
 
-def gaussian_entropy(mu_array: np.ndarray, sigma_squared: float = 1e-3, anchor_base: bool = False) -> np.ndarray:
+def gaussian_entropy(mu_array: np.ndarray, sigma_squared: float = 1e-8, anchor_base: bool = False) -> np.ndarray:
     """
     Calculate the entropy of diagonal multivariate Gaussian distributions.
+    
+    Uses sigma_squared=1e-8 as a low-noise floor to accommodate both 
+    large unnormalized features and the small variances of L2-normalized features.
     """
     mu_array = np.asarray(mu_array, dtype=np.float32)
     if len(mu_array.shape) == 2:
@@ -91,10 +102,10 @@ def trace_variance(mu_array: np.ndarray, anchor_base: bool = True) -> np.ndarray
     # This prevents the metric from ignoring systematic shifts when M is large.
     if anchor_base:
         reference_features = mu_array[:, 0:1, :]
+        diagonal_terms = np.mean((mu_array - reference_features) ** 2, axis=1)
     else:
-        reference_features = np.mean(mu_array, axis=1, keepdims=True)
-
-    diagonal_terms = np.mean((mu_array - reference_features) ** 2, axis=1)
+        diagonal_terms = np.var(mu_array, axis=1, ddof=1)
+        
     diagonal_terms = np.clip(diagonal_terms, 0.0, None)
     
     # Trace is simply the sum of all dimensional variances

@@ -114,18 +114,18 @@ def show_hallucination_analysis(uncertainty_scores, base_samples, threshold):
     # 5. Plot it!
     fig, ax = plt.subplots(figsize=(8, 8))
 
-    ax.scatter(base_samples[TN_mask, 0], base_samples[TN_mask, 1], s=2, alpha=0.3, color='tab:blue', 
+    ax.scatter(base_samples[TN_mask, 0], base_samples[TN_mask, 1], s=15, alpha=0.5, color='tab:blue', 
             label=f'Rightfully Kept (TN): {TN_mask.sum()}')
-    ax.scatter(base_samples[FP_mask, 0], base_samples[FP_mask, 1], s=2, alpha=0.3, color='tab:orange', 
+    ax.scatter(base_samples[FP_mask, 0], base_samples[FP_mask, 1], s=15, alpha=0.5, color='tab:orange', 
             label=f'Wrongly Shaved Halos (FP): {FP_mask.sum()}')
-    ax.scatter(base_samples[TP_mask, 0], base_samples[TP_mask, 1], s=8, alpha=0.9, color='tab:green', 
+    ax.scatter(base_samples[TP_mask, 0], base_samples[TP_mask, 1], s=20, alpha=0.9, color='tab:green', 
             label=f'Rightfully Caught (TP): {TP_mask.sum()}')
-    ax.scatter(base_samples[FN_mask, 0], base_samples[FN_mask, 1], s=8, alpha=0.9, color='tab:red', 
+    ax.scatter(base_samples[FN_mask, 0], base_samples[FN_mask, 1], s=20, alpha=0.9, color='tab:red', 
             label=f'Missed Hallucinations (FN): {FN_mask.sum()}')
 
     # Draw circles around the modes to visualize the threshold
     for mu in true_means:
-        circle = plt.Circle((mu[0], mu[1]), dist_threshold, color='black', fill=False, linestyle='--', alpha=0.3)
+        circle = plt.Circle((mu[0], mu[1]), dist_threshold, color='black', fill=False, linestyle='--', alpha=0.9, linewidth=1.5)
         ax.add_patch(circle)
 
     ax.set_title(f"Predicted vs True Hallucinations (at {threshold}%)")
@@ -133,7 +133,8 @@ def show_hallucination_analysis(uncertainty_scores, base_samples, threshold):
     ax.set_ylim(-1.8, 1.8)
     ax.set_aspect('equal', adjustable='box')
     ax.grid(True, alpha=0.3)
-    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.15), ncol=2, fontsize='large')
+    # ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.15), ncol=2, fontsize='large')
+    ax.legend(ncol=1, loc='lower center', frameon=True, fancybox=True, shadow=True)
     # ax.legend()
     plt.tight_layout()
     plt.show()

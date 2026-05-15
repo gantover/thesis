@@ -9,10 +9,10 @@
 ### -- Select the resources: 1 gpu in exclusive process mode --
 #BSUB -gpu "num=1:mode=exclusive_process"
 ### -- Request a GPU with 32GB VRAM (Crucial for your memory error) --
-#BSUB -R "select[gpu32gb]"
+#BSUB -R "select[gpu16gb]"
 ### -- set walltime limit: hh:mm --
 #BSUB -W 08:00
-#BSUB -R "rusage[mem=24GB]"
+#BSUB -R "rusage[mem=16GB]"
 ### -- set the email address --
 #BSUB -u s243425@dtu.dk
 ### -- send notification at start --

@@ -74,10 +74,12 @@ def compute_uncertainty_precomputed(
         # Format: (Batch, M, D)
         features_chunk = np.transpose(np.stack(chunk_features, axis=0), (1, 0, 2))
         
+        # Compute entropy using sigma_squared=1e-8. This prevents completely swallowing
+        # the small variances of L2-normalized encoders (like SigLIP) while maintaining a noise floor.
         if entropy_calculation == "full":
-            eu[start:end] = exact_gaussian_entropy(features_chunk, sigma_squared=1e-3, anchor_base=anchor_base)
+            eu[start:end] = exact_gaussian_entropy(features_chunk, sigma_squared=1e-8, anchor_base=anchor_base)
         elif entropy_calculation == "diagonal":
-            eu[start:end] = gaussian_entropy(features_chunk, sigma_squared=1e-3, anchor_base=anchor_base)
+            eu[start:end] = gaussian_entropy(features_chunk, sigma_squared=1e-8, anchor_base=anchor_base)
         elif entropy_calculation == "trace":
             eu[start:end] = trace_variance(features_chunk, anchor_base=anchor_base)
         elif entropy_calculation == "distance":
@@ -175,11 +177,12 @@ def compute_uncertainty_onthefly(
         # Reshape back to (B, M, D)
         features = features.view(len(current_batch_paths), m_samples, -1).cpu().numpy()
         
-        # Compute entropy
+        # Compute entropy using sigma_squared=1e-8. This acts as a safe numerical
+        # stabilizer and preserves tiny variances from L2-normalized embeddings.
         if entropy_calculation == "full":
-            batch_eu = exact_gaussian_entropy(features, sigma_squared=1e-3, anchor_base=anchor_base)
+            batch_eu = exact_gaussian_entropy(features, sigma_squared=1e-8, anchor_base=anchor_base)
         elif entropy_calculation == "diagonal":
-            batch_eu = gaussian_entropy(features, sigma_squared=1e-3, anchor_base=anchor_base)
+            batch_eu = gaussian_entropy(features, sigma_squared=1e-8, anchor_base=anchor_base)
         elif entropy_calculation == "trace":
             batch_eu = trace_variance(features, anchor_base=anchor_base)
         elif entropy_calculation == "distance":
