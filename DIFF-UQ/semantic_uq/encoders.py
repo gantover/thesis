@@ -144,4 +144,7 @@ def build_encoder(encoder_name: str, device: torch.device):
 
         return preprocess, encode_batch, preprocess_gpu
 
+    if encoder_name == "unet_internal":
+        return (lambda x: x), (lambda x: x), (lambda x: x)
+
     raise ValueError(f"Unknown encoder: {encoder_name}")

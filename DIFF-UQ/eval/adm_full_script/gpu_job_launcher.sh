@@ -54,13 +54,13 @@ nvidia-smi
 # bash ./$base/0_uncertainty.sh        # compute per-image uncertainty scores (if not already done)
 
 # Extract Inception features for ALL generated images (prerequisite for realism scoring).
-# bash ./$base/3_all_features.sh
+bash ./$base/3_all_features.sh
 
 # Compute per-image realism scores from the full feature set.
-# bash ./$base/3_realism_eval.sh
+bash ./$base/3_realism_eval.sh
 
 # Compute per-image rarity scores from the full feature set.
-# bash ./$base/3_rarity_eval.sh
+bash ./$base/3_rarity_eval.sh
 
 # Run all four baselines (Random / GU / Realism / Rarity) at each budget N.
 # for N in 12000 11000 10000 9000 8000 7000 6000 

@@ -71,4 +71,4 @@ sampling:
     classifier_scale: 1.0
 
 laplace:
-    temperature: 0.1
+    temperature: 0.01

@@ -10,7 +10,7 @@ def parse_args():
         "--encoder",
         type=str,
         default="clip",
-        choices=["clip", "dinov2_vitl14_reg", "vgg16", "siglip", "openclip_h14"],
+        choices=["clip", "dinov2_vitl14_reg", "vgg16", "siglip", "openclip_h14", "unet_internal"],
         help="Encoder used to extract image features",
     )
     parser.add_argument(
@@ -27,6 +27,13 @@ def parse_args():
         help="Method for calculating Gaussian entropy: 'full', 'diagonal', 'trace', or 'distance' (Cosine distance to anchor)",
     )
     
+    parser.add_argument(
+        "--unet-feature-key",
+        type=str,
+        default=None,
+        help="Which (layer, timestep) combo to use for unet_internal, e.g. output_blocks.2_t30",
+    )
+
     # On-the-fly specific parameters
     parser.add_argument("--sigma", type=float, default=0.02, help="Scale of the Gaussian pixel noise for onthefly mode")
     parser.add_argument("--use_transforms", action="store_true", help="Enable Mixed TTA (Crop + Flip + Noise) for onthefly mode")
@@ -50,7 +57,8 @@ if __name__ == "__main__":
             encoder_name=args.encoder,
             entropy_calculation=args.entropy_calculation,
             anchor_base=not args.unanchored_variance,
-            chunk_size=args.chunk_size
+            chunk_size=args.chunk_size,
+            unet_feature_key=args.unet_feature_key,
         )
     elif args.mode == "onthefly":
         base_dir = args.path + "/0/imgs"

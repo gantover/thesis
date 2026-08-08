@@ -25,8 +25,14 @@ def parse_args():
         "--encoder",
         type=str,
         default="clip",
-        choices=["clip", "dinov2_vits14_reg", "vgg16", "siglip", "openclip_h14"],
+        choices=["clip", "dinov2_vits14_reg", "vgg16", "siglip", "openclip_h14", "unet_internal"],
         help="Encoder used to extract image features",
+    )
+    parser.add_argument(
+        "--unet-feature-key",
+        type=str,
+        default=None,
+        help="Which (layer, timestep) combo to load for unet_internal, e.g. output_blocks.2_t30",
     )
     parser.add_argument(
         "--chunk-size",
@@ -227,10 +233,13 @@ def build_encoder(encoder_name: str, device: torch.device):
 
         return preprocess, encode_batch
 
+    if encoder_name == "unet_internal":
+        return (lambda x: x), (lambda x: x)
+
     raise ValueError(f"Unknown encoder: {encoder_name}")
 
 
-def compute_generative_uncertainty(path, M, encoder_name, chunk_size, entropy_calculation, eu_type="entropy"):
+def compute_generative_uncertainty(path, M, encoder_name, chunk_size, entropy_calculation, eu_type="entropy", unet_feature_key=None):
     print(f"Loading samples from {M} models from {path} using encoder '{encoder_name}'")
 
     #### 1) Compute image features
@@ -245,27 +254,42 @@ def compute_generative_uncertainty(path, M, encoder_name, chunk_size, entropy_ca
     N = len(os.listdir(f"{path}/{0}/imgs"))
     feature_filename = f"{encoder_name}_features.npy"
 
-    features_available = False 
+    if encoder_name != "unet_internal":
+        features_available = False
 
-    if not features_available:
-        for m in tqdm(range(M), desc="Extracting features from models", unit="model"):
-            print(f"Processing model {m}")
-            image_vecs = []
-            for i in range(N):
-                image = Image.open(f"{path}/{m}/imgs/{i:05d}.png").convert("RGB")
-                image = preprocess(image).unsqueeze(0).to(device)
+        if not features_available:
+            for m in tqdm(range(M), desc="Extracting features from models", unit="model"):
+                print(f"Processing model {m}")
+                image_vecs = []
+                for i in range(N):
+                    image = Image.open(f"{path}/{m}/imgs/{i:05d}.png").convert("RGB")
+                    image = preprocess(image).unsqueeze(0).to(device)
 
-                with torch.no_grad():
-                    # OpenAI CLIP on CUDA often returns float16; store as float32 for NumPy linalg.
-                    image_vecs.append(encode_batch(image).float().cpu())
+                    with torch.no_grad():
+                        # OpenAI CLIP on CUDA often returns float16; store as float32 for NumPy linalg.
+                        image_vecs.append(encode_batch(image).float().cpu())
 
-            image_vecs = torch.concat(image_vecs, dim=0)
-            print(image_vecs.shape)
+                image_vecs = torch.concat(image_vecs, dim=0)
+                print(image_vecs.shape)
+                features_path = Path(path) / str(m) / feature_filename
+                features_path.parent.mkdir(parents=True, exist_ok=True)
+                np.save(features_path, image_vecs.numpy())
+        else:
+            print("features were already computed")
+    else:
+        if unet_feature_key is None:
+            raise ValueError("--unet-feature-key is required when --encoder is unet_internal")
+        for m in tqdm(range(M), desc=f"Assembling UNet features [{unet_feature_key}]", unit="model"):
+            combo_dir = os.path.join(path, str(m), "features", unet_feature_key)
+            batch_files = sorted(
+                [f for f in os.listdir(combo_dir) if f.startswith("batch_") and f.endswith(".npy")],
+                key=lambda x: int(x.split("_")[1].split(".")[0]),
+            )
+            chunks = [np.load(os.path.join(combo_dir, f)) for f in batch_files]
+            all_features = np.concatenate(chunks, axis=0)
             features_path = Path(path) / str(m) / feature_filename
             features_path.parent.mkdir(parents=True, exist_ok=True)
-            np.save(features_path, image_vecs.numpy())
-    else:
-        print("features were already computed")
+            np.save(features_path, all_features)
 
     #### 2) Compute the entropy of the semantic likelihood
 
@@ -304,4 +328,4 @@ def compute_generative_uncertainty(path, M, encoder_name, chunk_size, entropy_ca
 
 if __name__ == "__main__":
     args = parse_args()
-    compute_generative_uncertainty(args.path, args.M, encoder_name=args.encoder, chunk_size=args.chunk_size, entropy_calculation=args.entropy_calculation)
+    compute_generative_uncertainty(args.path, args.M, encoder_name=args.encoder, chunk_size=args.chunk_size, entropy_calculation=args.entropy_calculation, unet_feature_key=args.unet_feature_key)

@@ -19,45 +19,64 @@ def compute_uncertainty_precomputed(
     anchor_base: bool = True,
     chunk_size: int = 256,
     eu_type: str = "entropy",
-    device: str = "cuda"
+    device: str = "cuda",
+    unet_feature_key: Optional[str] = None,
 ) -> np.ndarray:
     """
     Computes uncertainty from pre-computed images saved in M directories under `path`.
     Example directory structure:
-       path/0/imgs/00000.png
-       path/0/imgs/00001.png
-       ...
-       path/M-1/imgs/00000.png
+       path/0/imgs/00000.png  (standard encoders)
+       path/0/features/{unet_feature_key}/batch_*.npy  (unet_internal)
     """
+    if encoder_name == "unet_internal" and unet_feature_key is None:
+        raise ValueError("unet_feature_key is required when encoder_name is 'unet_internal'")
+
     dev = torch.device(device)
     preprocess, encode_batch, preprocess_gpu = build_encoder(encoder_name, dev)
 
     # 1) Compute image features or load them if they exist
-    # Determine N based on how many images in the `0` folder
     img_dir_0 = Path(path) / "0" / "imgs"
     if not img_dir_0.exists():
         raise FileNotFoundError(f"Missing base directory {img_dir_0}")
-        
+
     num_images = len(os.listdir(img_dir_0))
-    feature_filename = f"{encoder_name}_features.npy"
-    
-    for m in tqdm(range(m_samples), desc="Extracting features from models"):
-        features_path = Path(path) / str(m) / feature_filename
-        if features_path.exists():
-            continue  # Already computed
-            
-        image_vecs = []
-        for i in range(num_images):
-            img_path = Path(path) / str(m) / "imgs" / f"{i:05d}.png"
-            image = Image.open(img_path).convert("RGB")
-            processed = preprocess(image).unsqueeze(0).to(dev)
+    # Encode the feature key into the filename so multiple combos can coexist
+    feature_tag = f"{encoder_name}_{unet_feature_key}" if encoder_name == "unet_internal" else encoder_name
+    feature_filename = f"{feature_tag}_features.npy"
 
-            with torch.no_grad():
-                image_vecs.append(encode_batch(processed).float().cpu())
+    if encoder_name != "unet_internal":
+        for m in tqdm(range(m_samples), desc="Extracting features from models"):
+            features_path = Path(path) / str(m) / feature_filename
+            if features_path.exists():
+                continue  # Already computed
 
-        image_vecs = torch.concat(image_vecs, dim=0)
-        features_path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(features_path, image_vecs.numpy())
+            image_vecs = []
+            for i in range(num_images):
+                img_path = Path(path) / str(m) / "imgs" / f"{i:05d}.png"
+                image = Image.open(img_path).convert("RGB")
+                processed = preprocess(image).unsqueeze(0).to(dev)
+
+                with torch.no_grad():
+                    image_vecs.append(encode_batch(processed).float().cpu())
+
+            image_vecs = torch.concat(image_vecs, dim=0)
+            features_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(features_path, image_vecs.numpy())
+    else:
+        for m in tqdm(range(m_samples), desc=f"Assembling UNet features [{unet_feature_key}]"):
+            features_path = Path(path) / str(m) / feature_filename
+            if features_path.exists():
+                continue  # Already assembled
+
+            combo_dir = Path(path) / str(m) / "features" / unet_feature_key
+            batch_files = sorted(
+                [f for f in os.listdir(combo_dir) if f.startswith("batch_") and f.endswith(".npy")],
+                key=lambda x: int(x.split("_")[1].split(".")[0]),
+            )
+            chunks = [np.load(combo_dir / f) for f in batch_files]
+            all_features = np.concatenate(chunks, axis=0)
+            features_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(features_path, all_features)
 
     # 2) Compute the entropy
     feature_paths = [Path(path) / str(m) / feature_filename for m in range(m_samples)]
@@ -87,7 +106,7 @@ def compute_uncertainty_precomputed(
         else:
             raise ValueError(f"Unknown entropy calculation mode: {entropy_calculation}")
 
-    eu_path = Path(path) / f"{eu_type}_{encoder_name}.npy"
+    eu_path = Path(path) / f"{eu_type}_{feature_tag}.npy"
     eu_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(eu_path, eu)
     return eu

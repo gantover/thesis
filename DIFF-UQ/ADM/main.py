@@ -207,10 +207,31 @@ def main(args, config):
     os.makedirs(exp_dir, exist_ok=True)
     np.save(os.path.join(exp_dir, "classes.npy"), fixed_classes.cpu().numpy())
 
+    activations = {}
+    hooks = []
+    if args.save_unet_features and args.unet_target_layers:
+        named_modules = dict(model.named_modules())
+        for layer_name in args.unet_target_layers:
+            if layer_name not in named_modules:
+                raise ValueError(
+                    f"Layer '{layer_name}' not found in model. "
+                    f"Available modules (first 20): {list(named_modules.keys())[:20]}"
+                )
+            def make_hook(name):
+                def hook(module, input, output):
+                    tensor = output[0] if isinstance(output, tuple) else output
+                    pooled = F.adaptive_avg_pool2d(tensor.float(), (1, 1)).flatten(1).detach().cpu()
+                    activations[name] = pooled
+                    return None
+                return hook
+            hooks.append(named_modules[layer_name].register_forward_hook(make_hook(layer_name)))
+
     S, D = last_layers.shape
     for s in range(S):
 
         os.makedirs(exp_dir + f"{s}/imgs", exist_ok=True)
+        if args.save_unet_features:
+            os.makedirs(exp_dir + f"{s}/features", exist_ok=True)
         img_count = 0
 
         with torch.no_grad():
@@ -265,10 +286,23 @@ def main(args, config):
                 t_discrete = (torch.ones(args.sample_batch_size) * seq[args.timesteps - 1]).to(xT.device).to(torch.int64)
                 eps_mu_t = predict_eps(xT, t_discrete)
 
+                batch_features_per_combo = {}  # key: "{layer}_t{timestep}" -> tensor (B, D)
                 for timestep in range(args.timesteps - 1, 0, -1):
                     xt_next = singlestep_ddim_sample(betas, xt_next, seq, timestep, eps_mu_t)
                     t_discrete = (torch.ones(args.sample_batch_size) * seq[timestep - 1]).to(xt_next.device).to(torch.int64)
                     eps_mu_t = predict_eps(xt_next, t_discrete)
+
+                    if args.save_unet_features and timestep in args.unet_target_timesteps:
+                        for layer_name in args.unet_target_layers:
+                            if layer_name in activations:
+                                batch_features_per_combo[f"{layer_name}_t{timestep}"] = activations[layer_name]
+                        activations.clear()
+
+                if args.save_unet_features and batch_features_per_combo:
+                    for combo_key, features in batch_features_per_combo.items():
+                        combo_dir = os.path.join(exp_dir + f"{s}/features", combo_key)
+                        os.makedirs(combo_dir, exist_ok=True)
+                        np.save(os.path.join(combo_dir, f"batch_{loop}.npy"), features.numpy())
 
                 x = inverse_data_transform(config, xt_next)
 
@@ -281,6 +315,9 @@ def main(args, config):
                     img_pil = Image.fromarray(img)
                     img_pil.save(os.path.join(exp_dir + f"{s}/imgs", f"{img_count:05d}.png"))
                     img_count += 1
+
+    for h in hooks:
+        h.remove()
 
     return exp_dir
 

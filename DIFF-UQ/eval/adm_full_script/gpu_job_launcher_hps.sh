@@ -39,11 +39,11 @@ echo "EXP_PATH: $EXP_PATH"
 echo "DATA_PATH: $DATA_PATH"
 
 # Keep Hugging Face and temporary files on BLACKHOLE instead of HOME quota.
-export HF_HOME="${EXP_PATH}/_hf_home"
+export HF_HOME="${REF_PATH}/_hf_home"
 export HF_HUB_CACHE="${HF_HOME}/hub"
 export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
 export HF_XET_CACHE="${HF_HOME}/xet"
-export TMPDIR="${EXP_PATH}/_tmp"
+export TMPDIR="${REF_PATH}/_tmp"
 export TMP="${TMPDIR}"
 export TEMP="${TMPDIR}"
 mkdir -p "$HF_HOME" "$HF_HUB_CACHE" "$HF_XET_CACHE" "$TMPDIR"
@@ -64,5 +64,8 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # 4. Debug: Print GPU info to log
 nvidia-smi
+export CUDA_VISIBLE_DEVICES=0
+nvidia-smi
 
-bash ./$base/5_hpsv3_score.sh
+# bash ./$base/5_hpsv3_score.sh
+bash ./$base/5_hpsv3_score_classes_npy.sh

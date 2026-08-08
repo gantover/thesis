@@ -200,6 +200,13 @@ def parse_args_and_config():
 
     parser.add_argument("--exp_path", type=str, default="./imgs")
 
+    parser.add_argument("--save_unet_features", action="store_true",
+                        help="If set, extract and save pooled intermediate UNet features during DDIM sampling.")
+    parser.add_argument("--unet_target_layers", nargs="+", type=str, default=[],
+                        help="Named submodules to hook, e.g. output_blocks.2 output_blocks.3")
+    parser.add_argument("--unet_target_timesteps", nargs="+", type=int, default=[],
+                        help="DDIM loop indices at which to save features, e.g. 30 25 20")
+
     args = parser.parse_args()
 
     # parse config file

@@ -121,24 +121,45 @@ def main(exp_path, ref_path):
         scores.append({"N": N, "Method": "Rarity", "FID": rarity_fid, "Precision": rarity_precision, "Recall": rarity_recall})
 
         # 5. HPSv3 baseline 
-        print("  - HPSv3")
-        idx_sort_path = str(Path(exp_path) / "0")
-        idx_sort(path=idx_sort_path, name="hps", N=N, reverse=True)
-        idx_hps = np.load(str(Path(exp_path) / "0" / f"idx_sorted_{N}_hps.npy"))
-        eval_features_pt = full_eval_features_pt[idx_hps]
+        # print("  - HPSv3")
+        # idx_sort_path = str(Path(exp_path) / "0")
+        # idx_sort(path=idx_sort_path, name="hps", N=N, reverse=True)
+        # idx_hps = np.load(str(Path(exp_path) / "0" / f"idx_sorted_{N}_hps.npy"))
+        # eval_features_pt = full_eval_features_pt[idx_hps]
         
+        # mu, sigma = get_stats_from_features(eval_features_pt)
+        # hpsv3_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
+        
+        # hpsv3_pr_dict = knn_precision_recall_features(
+        #     prt_ref_features, 
+        #     eval_features_pt.numpy(), 
+        #     row_batch_size=10000, col_batch_size=10000
+        # )
+        # hpsv3_precision, hpsv3_recall = hpsv3_pr_dict["precision"], hpsv3_pr_dict["recall"]
+        # print(f"    FID: {hpsv3_fid} Precision: {hpsv3_precision}, Recall: {hpsv3_recall}")
+        # scores.append({"N": N, "Method": "HPSv3", "FID": hpsv3_fid, "Precision": hpsv3_precision, "Recall": hpsv3_recall})
+
+        # 6. Internal UNET baseline
+        print("  - Internal UNET")
+        idx_sort_path = str(Path(exp_path))
+        idx_sort(path=idx_sort_path, name="entropy_unet_internal_output_blocks.1.1_t5", N=N, reverse=False)
+        idx_unet_internal = np.load(str(Path(exp_path) / f"idx_sorted_{N}_entropy_unet_internal_output_blocks.1.1_t5.npy"))
+        eval_features_pt = full_eval_features_pt[idx_unet_internal]
+
         mu, sigma = get_stats_from_features(eval_features_pt)
-        hpsv3_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
-        
-        hpsv3_pr_dict = knn_precision_recall_features(
+        unet_internal_fid = calculate_fid_from_inception_stats(mu, sigma, ref_mu, ref_sigma)
+
+        unet_internal_pr_dict = knn_precision_recall_features(
             prt_ref_features, 
             eval_features_pt.numpy(), 
             row_batch_size=10000, col_batch_size=10000
         )
-        hpsv3_precision, hpsv3_recall = hpsv3_pr_dict["precision"], hpsv3_pr_dict["recall"]
-        print(f"    FID: {hpsv3_fid} Precision: {hpsv3_precision}, Recall: {hpsv3_recall}")
-        scores.append({"N": N, "Method": "HPSv3", "FID": hpsv3_fid, "Precision": hpsv3_precision, "Recall": hpsv3_recall})
+        unet_internal_precision, unet_internal_recall = unet_internal_pr_dict["precision"], unet_internal_pr_dict["recall"]
+        print(f"    FID: {unet_internal_fid} Precision: {unet_internal_precision}, Recall: {unet_internal_recall}")
+        scores.append({"N": N, "Method": "UNET Internal", "FID": unet_internal_fid, "Precision": unet_internal_precision, "Recall": unet_internal_recall})
 
+        
+        # saving the scores
         scores_df = pd.DataFrame(scores)
         scores_df.to_pickle(Path(exp_path) / "scores.pkl")
 
